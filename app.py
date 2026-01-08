@@ -453,7 +453,7 @@ st.title("💹 株トレードゲーム")
 # 説明文
 st.markdown("実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。")
 
-# ルール説明を横並びのカード風に配置（色はStreamlit標準の意味づけを利用してトレードっぽく）
+# ルール説明を横並びのカード風に配置
 col_rule1, col_rule2, col_rule3 = st.columns(3)
 
 with col_rule1:
@@ -471,24 +471,22 @@ st.markdown("---")
 input_col, btn_col = st.columns([1, 5])
 
 with input_col:
-    # label_visibility="collapsed" で「証券コード...」の文字を隠してスッキリさせる（placeholderで代用も可だが今回は文言維持のため配置で調整）
-    # 文言を変えない制約があるため、ラベルは残しつつレイアウトで見やすくします
-    code = st.text_input("証券コード (例: 7203)", "7203", label_visibility="collapsed")
+    # ラベルを指定の文言に変更し、表示されるようにしました
+    code = st.text_input("証券コードを入力", "7203")
 
 with btn_col:
-    # use_container_width=True でボタンを横幅いっぱいに広げる
+    # 入力欄の「証券コードを入力」という文字の分だけボタンが上にズレないよう、透明な隙間を入れて高さを揃えます
+    st.markdown('<div style="height: 29px;"></div>', unsafe_allow_html=True)
     start_btn = st.button("ゲーム開始", type="primary", use_container_width=True)
 
 # ゲーム開始処理
 if start_btn:
-    # "証券コード (例: 7203)" のラベルが表示されていないため、現在処理中の銘柄がわかるようにspinnerの文言だけ少し補足的に表示されます
     with st.spinner(f'{code} のデータを取得中...'):
         stock_data, error = get_stock_data(code)
     
     if error:
         st.error(error)
     else:
-        # グラフ表示
-        st.write("") # 少し余白を入れる
+        st.write("") 
         game_html = render_game_html(stock_data)
         st.components.v1.html(game_html, height=650, scrolling=False)
