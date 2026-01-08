@@ -8,7 +8,7 @@ import re
 
 # === 設定 ===
 PREDICT_DAYS = 20  # ゲームの予測回数
-st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
+st.set_page_config(page_title="板トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 (変更なし) ===
 MESSAGES = {
@@ -425,7 +425,7 @@ def render_game_html(data):
     return html
 
 # === Streamlit UI ===
-st.title("💹 AI板読みトレーディング道場")
+st.title("💹 株トレードゲーム")
 st.markdown("""
 実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。
 - **BUY**: 陽線（始値より終値が高い）と予測
