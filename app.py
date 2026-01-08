@@ -453,18 +453,17 @@ st.title("💹 株トレードゲーム")
 # 説明文
 st.markdown("実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。")
 
-# ルール説明を横並びのカード風に配置
+# ルール説明を横並びのカード風に配置（SKIPを真ん中に移動）
 col_rule1, col_rule2, col_rule3 = st.columns(3)
 
 with col_rule1:
     st.success("**BUY**: 陽線（始値より終値が高い）と予測", icon="📈")
 
-with col_rule3:
+with col_rule2:
     st.info("**SKIP**: 自信がない時は見送り", icon="👀")
 
-with col_rule2:
+with col_rule3:
     st.error("**SELL**: 陰線（始値より終値が低い）と予測", icon="📉")
-
 
 st.markdown("---")
 
@@ -472,11 +471,11 @@ st.markdown("---")
 input_col, btn_col = st.columns([1, 5])
 
 with input_col:
-    # ラベルを指定の文言に変更し、表示されるようにしました
+    # 検索窓の説明
     code = st.text_input("証券コードを入力", "7203")
 
 with btn_col:
-    # 入力欄の「証券コードを入力」という文字の分だけボタンが上にズレないよう、透明な隙間を入れて高さを揃えます
+    # 高さ調整用の空白を入れてボタン位置を合わせる
     st.markdown('<div style="height: 29px;"></div>', unsafe_allow_html=True)
     start_btn = st.button("ゲーム開始", type="primary", use_container_width=True)
 
