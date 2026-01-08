@@ -445,6 +445,8 @@ def render_game_html(data):
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    /* スマホなどで崩れないようにカードの高さを揃える */
+    .stAlert { height: 100%; } 
     </style>
 """, unsafe_allow_html=True)
 
@@ -453,14 +455,32 @@ st.title("💹 株トレードゲーム")
 # 説明文
 st.markdown("実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。")
 
-# ルール説明を横並びのカード風に配置（SKIPを真ん中に移動）
+# ルール説明を横並びのカード風に配置
+# SKIPをグレーにするため、ここだけHTMLでデザイン調整しています
 col_rule1, col_rule2, col_rule3 = st.columns(3)
 
 with col_rule1:
     st.success("**BUY**: 陽線（始値より終値が高い）と予測", icon="📈")
 
 with col_rule2:
-    st.info("**SKIP**: 自信がない時は見送り", icon="👀")
+    # 標準機能にグレーがないため、HTMLで作成して色を指定
+    # 背景色はダークモード/ライトモードどちらでも馴染む薄いグレー(rgba)に設定
+    st.markdown("""
+        <div style="
+            background-color: rgba(150, 150, 150, 0.15);
+            border: 1px solid rgba(150, 150, 150, 0.3);
+            padding: 16px;
+            border-radius: 8px;
+            color: inherit;
+            display: flex;
+            align-items: center;
+        ">
+            <span style="font-size: 1.25rem; margin-right: 12px; margin-top: -4px;">👀</span>
+            <div style="font-size: 1rem; line-height: 1.5;">
+                <strong>SKIP</strong>: 自信がない時は見送り
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
 with col_rule3:
     st.error("**SELL**: 陰線（始値より終値が低い）と予測", icon="📉")
