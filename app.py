@@ -5,12 +5,13 @@ import json
 import random
 import string
 import re
+import requests  # 追加: 社名取得用
 
 # === 設定 ===
-PREDICT_DAYS = 20  # ゲームの予測回数
-st.set_page_config(page_title="板トレードゲーム", layout="wide")
+PREDICT_DAYS = 20
+st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
-# === メッセージリスト定義 (変更なし) ===
+# === メッセージリスト定義 ===
 MESSAGES = {
     "god": [
         "未来から来たんですか？ ロト6の番号も教えてください。",
@@ -55,18 +56,33 @@ MESSAGES = {
 }
 
 def get_japanese_name(ticker):
-    """Yahoo!ファイナンス等から日本語社名を取得（強化版）"""
+    """
+    Yahoo!ファイナンス(日本)からスクレイピングして日本語社名を取得する
+    yfinanceのinfoが不安定なため、こちらのほうが確実です。
+    """
+    # コードから.Tを除去（URL作成用）
+    code_only = ticker.replace('.T', '')
+    url = f"https://finance.yahoo.co.jp/quote/{code_only}.T"
+    
+    try:
+        # ブラウザのふりをしてアクセス
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=3)
+        res.encoding = res.apparent_encoding
+        
+        if res.status_code == 200:
+            # HTMLの <title>トヨタ自動車(株)【7203】... から社名を抽出
+            # 正規表現で【の前までを取得
+            match = re.search(r'<title>(.*?)【', res.text)
+            if match:
+                return match.group(1).strip()
+    except:
+        pass
+
+    # 取得失敗時はyfinanceを試す（英語名になる可能性が高い）
     try:
         t = yf.Ticker(ticker)
-        # infoへのアクセスは時間がかかる場合があるため、タイムアウト等を考慮すべきですが
-        # ここでは取得フィールドの優先順位をつけて取得を試みます
-        info = t.info
-        name = info.get('longName')
-        if not name:
-            name = info.get('shortName')
-        if not name:
-            name = ticker # 取得できなければコードそのまま
-        return name
+        return t.info.get('longName', ticker)
     except:
         return ticker
 
@@ -74,21 +90,18 @@ def get_japanese_name(ticker):
 def get_stock_data(code_str):
     """データ取得ロジック"""
     code_str = str(code_str).strip().upper()
-    # 日本株の場合、数字4桁なら.Tをつける
     if re.match(r'^\d{4}$', code_str):
         ticker = f"{code_str}.T"
     else:
         ticker = code_str
 
     try:
-        # yfinanceのダウンロード
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
     except Exception as e:
         return None, f"ダウンロードエラー: {e}"
 
     if df.empty: return None, "データが見つかりません。コードを確認してください。"
     
-    # マルチインデックス対応（yfinanceのバージョンによる違いを吸収）
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
@@ -100,7 +113,6 @@ def get_stock_data(code_str):
     df['MA75'] = df['Close'].rolling(75).mean()
     df = df.dropna()
 
-    # ゲームに必要なデータ数を確保
     if len(df) < PREDICT_DAYS + 50: return None, "データ不足です（表示用に最低50日分必要です）。"
 
     df.index = pd.to_datetime(df.index)
@@ -117,6 +129,7 @@ def get_stock_data(code_str):
     def make_l(d, col):
         return [{"time": r['date_str'], "value": r[col]} for _, r in d.iterrows()]
 
+    # 日本語社名を取得
     name = get_japanese_name(ticker)
     
     data = {
@@ -133,7 +146,6 @@ def get_stock_data(code_str):
     return data, None
 
 def render_game_html(data):
-    # ユニークID生成（念のため）
     uid = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
     json_data = json.dumps(data)
     json_msgs = json.dumps(MESSAGES)
@@ -155,12 +167,17 @@ def render_game_html(data):
                 display: flex; justify-content: space-between; align-items: flex-end;
                 margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 15px;
             }}
-            /* 銘柄名スタイルの修正: 色を白に強制し、折り返しを防止 */
             .ticker-info {{ 
-                font-size: 20px; font-weight: 800; color: #ffffff;
                 display: flex; flex-direction: column; 
             }}
-            .ticker-code {{ font-size: 14px; color: #9ca3af; font-family: monospace; font-weight: 400; margin-top: 4px; }}
+            /* 社名表示スタイル */
+            .ticker-name {{ 
+                font-size: 24px; font-weight: 800; color: #ffffff; 
+                line-height: 1.2;
+            }}
+            .ticker-code {{ 
+                font-size: 14px; color: #9ca3af; font-family: monospace; font-weight: 400; margin-top: 4px; 
+            }}
             
             .stats-box {{ font-size: 14px; color: #9ca3af; display: flex; gap: 15px; align-items: center; }}
             .stat-val {{ font-weight: 800; font-size: 18px; font-family: monospace; }}
@@ -223,7 +240,7 @@ def render_game_html(data):
         <div id="game-wrap" class="game-container">
             <div class="header">
                 <div class="ticker-info">
-                    <span id="ticker-name">{data['name']}</span>
+                    <span class="ticker-name">{data['name']}</span>
                     <span class="ticker-code">{data['code']}</span>
                 </div>
                 <div class="stats-box">
@@ -324,13 +341,12 @@ def render_game_html(data):
 
                 if (priceLine) sC.removePriceLine(priceLine);
                 
-                // === 修正箇所: axisLabelVisibleをfalseにしてチャート上の視認性を確保 ===
                 priceLine = sC.createPriceLine({{ 
                     price: nextData.open, 
                     color: '#FFD700', 
-                    lineWidth: 1,      // 線を少し細く
-                    lineStyle: 2,      // 点線
-                    axisLabelVisible: false, // 軸ラベル（右端）を非表示にする
+                    lineWidth: 1,      
+                    lineStyle: 2,      
+                    axisLabelVisible: false,
                 }});
                 
                 sNextOpen.setData([{{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }}]);
@@ -425,7 +441,7 @@ def render_game_html(data):
     return html
 
 # === Streamlit UI ===
-st.title("💹 株トレードゲーム")
+st.title("💹 AI板読みトレーディング道場")
 st.markdown("""
 実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。
 - **BUY**: 陽線（始値より終値が高い）と予測
