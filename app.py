@@ -10,9 +10,9 @@ import re
 PREDICT_DAYS = 20  # ゲームの予測回数
 st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
-# === メッセージリスト定義 ===
+# === メッセージリスト定義 (変更なし) ===
 MESSAGES = {
-    "god": [ # 80-100%
+    "god": [
         "未来から来たんですか？ ロト6の番号も教えてください。",
         "SEC（証券取引委員会）があなたの監視を始めました。",
         "天才現る。明日からファンドマネージャーを名乗ってください。",
@@ -20,7 +20,7 @@ MESSAGES = {
         "その透視能力、カジノでは使わないでくださいね。",
         "全知全能の神ですか？ それともチャートが壊れていますか？"
     ],
-    "pro": [ # 60-79%
+    "pro": [
         "素晴らしい！ 相場の神様があなたに微笑んでいます。",
         "今のあなたなら、目をつぶって発注しても勝てるでしょう。",
         "働いたら負け。トレードだけで生きていける才能です。",
@@ -28,7 +28,7 @@ MESSAGES = {
         "完璧な読みです。ジョージ・ソロスも裸足で逃げ出すレベル。",
         "美しいトレードです。芸術点も加算しておきます。"
     ],
-    "normal": [ # 40-59%
+    "normal": [
         "コイントスで決めても、だいたい同じ結果になりますよ。",
         "サルのダーツ投げといい勝負です。",
         "凡人ですね。手数料負けして資産が溶けるパターンです。",
@@ -36,7 +36,7 @@ MESSAGES = {
         "可もなく不可もなく。記憶に残らないトレードでした。",
         "プラマイゼロ。時間の無駄でしたね。"
     ],
-    "bad": [ # 20-39%
+    "bad": [
         "養分乙。相場にお金を寄付してくれてありがとう。",
         "引退をおすすめします。真面目に。",
         "もしかして、画面を逆さまに見ていませんか？",
@@ -44,7 +44,7 @@ MESSAGES = {
         "悪いことは言いません。定期預金にしておきましょう。",
         "あなたが買った瞬間、アルゴが売りを浴びせていますね。"
     ],
-    "disaster": [ # 0-19%
+    "disaster": [
         "逆にすごい！ ここまで外す才能は稀有ですよ。",
         "あなたの『買い』は、全人類への『売り』シグナルです。",
         "PCの電源が入っていない可能性があります。確認してください。",
@@ -58,12 +58,14 @@ def get_japanese_name(ticker):
     """Yahoo!ファイナンス等から日本語社名を取得（簡易版）"""
     try:
         t = yf.Ticker(ticker)
+        # yfinanceのinfo取得は重い場合があるので、タイムアウト処理を入れるのが理想ですが
+        # ここでは簡易的に取得失敗時はコードを返すようにしています
         info = t.info
         return info.get('longName', ticker)
     except:
         return ticker
 
-@st.cache_data(ttl=3600) # 1時間キャッシュして動作を軽くする
+@st.cache_data(ttl=3600)
 def get_stock_data(code_str):
     """データ取得ロジック"""
     code_str = str(code_str).strip().upper()
@@ -79,7 +81,6 @@ def get_stock_data(code_str):
 
     if df.empty: return None, "データが見つかりません。コードを確認してください。"
     
-    # マルチインデックス対応
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
@@ -145,8 +146,10 @@ def render_game_html(data):
                 display: flex; justify-content: space-between; align-items: flex-end;
                 margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 15px;
             }}
-            .ticker-name {{ font-size: 20px; font-weight: 800; }}
-            .ticker-code {{ font-size: 14px; color: #9ca3af; font-family: monospace; }}
+            /* 銘柄名とコードを並べて表示するスタイルに変更 */
+            .ticker-info {{ font-size: 20px; font-weight: 800; display: flex; align-items: baseline; gap: 10px; }}
+            .ticker-code {{ font-size: 16px; color: #9ca3af; font-family: monospace; font-weight: 400; }}
+            
             .stats-box {{ font-size: 14px; color: #9ca3af; display: flex; gap: 15px; align-items: center; }}
             .stat-val {{ font-weight: 800; font-size: 18px; font-family: monospace; }}
             .win-col {{ color: #34d399; }} .lose-col {{ color: #f87171; }}
@@ -206,9 +209,9 @@ def render_game_html(data):
     <body>
         <div id="game-wrap" class="game-container">
             <div class="header">
-                <div>
-                    <div class="ticker-name">{data['name']}</div>
-                    <div class="ticker-code">{data['code']}</div>
+                <div class="ticker-info">
+                    <span>{data['name']}</span>
+                    <span class="ticker-code">({data['code']})</span>
                 </div>
                 <div class="stats-box">
                     <div>WIN: <span id="w-val" class="stat-val win-col">0</span></div>
@@ -262,12 +265,39 @@ def render_game_html(data):
                 crosshair: {{ vertLine: {{ color: '#555', labelBackgroundColor: '#555' }}, horzLine: {{ color: '#555', labelBackgroundColor: '#555' }} }}
             }});
 
-            const sM75 = chart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false }});
-            const sM25 = chart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false }});
-            const sM5  = chart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false }});
-            const sC = chart.addCandlestickSeries({{ upColor: '#10b981', downColor: '#f43f5e', borderUpColor: '#10b981', borderDownColor: '#f43f5e', wickUpColor: '#10b981', wickDownColor: '#f43f5e' }});
-            const sNextOpen = chart.addCandlestickSeries({{ upColor: '#FFD700', downColor: '#FFD700', borderUpColor: '#FFD700', borderDownColor: '#FFD700', wickUpColor: '#FFD700', wickDownColor: '#FFD700' }});
-            const sV = chart.addHistogramSeries({{ priceFormat: {{ type: 'volume' }}, priceScaleId: '', scaleMargins: {{ top: 0.8, bottom: 0 }} }});
+            // 設定: lastValueVisible: false と priceLineVisible: false でデフォルトの現在値ラインを消す
+            const sM75 = chart.addLineSeries({{ 
+                color: '#a855f7', lineWidth: 1, 
+                crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false 
+            }});
+            const sM25 = chart.addLineSeries({{ 
+                color: '#34d399', lineWidth: 1, 
+                crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false 
+            }});
+            const sM5  = chart.addLineSeries({{ 
+                color: '#facc15', lineWidth: 1, 
+                crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false 
+            }});
+            
+            const sC = chart.addCandlestickSeries({{ 
+                upColor: '#10b981', downColor: '#f43f5e', 
+                borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
+                wickUpColor: '#10b981', wickDownColor: '#f43f5e',
+                lastValueVisible: false, priceLineVisible: false // デフォルトの線を表示しない
+            }});
+            
+            const sNextOpen = chart.addCandlestickSeries({{ 
+                upColor: '#FFD700', downColor: '#FFD700', 
+                borderUpColor: '#FFD700', borderDownColor: '#FFD700', 
+                wickUpColor: '#FFD700', wickDownColor: '#FFD700',
+                lastValueVisible: false, priceLineVisible: false 
+            }});
+            
+            const sV = chart.addHistogramSeries({{ 
+                priceFormat: {{ type: 'volume' }}, priceScaleId: '', 
+                scaleMargins: {{ top: 0.8, bottom: 0 }},
+                lastValueVisible: false, priceLineVisible: false 
+            }});
 
             function updateNextOpenDisplay() {{
                 if (idx >= d.tgt.c.length) {{
@@ -281,7 +311,17 @@ def render_game_html(data):
                 document.getElementById('price-label').style.display = 'block';
 
                 if (priceLine) sC.removePriceLine(priceLine);
-                priceLine = sC.createPriceLine({{ price: nextData.open, color: '#FFD700', lineWidth: 2, lineStyle: 2, axisLabelVisible: false }});
+                
+                // ここで始値のみに黄色い点線を表示
+                priceLine = sC.createPriceLine({{ 
+                    price: nextData.open, 
+                    color: '#FFD700', 
+                    lineWidth: 2, 
+                    lineStyle: 2, // 2 = Dashed (点線)
+                    axisLabelVisible: true, 
+                    title: 'OPEN'
+                }});
+                
                 sNextOpen.setData([{{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }}]);
             }}
 
@@ -382,7 +422,6 @@ st.markdown("""
 - **SKIP**: 自信がない時は見送り
 """)
 
-# サイドバーまたは上部に入力フォーム
 col1, col2 = st.columns([1, 3])
 with col1:
     code = st.text_input("証券コード (例: 7203)", "7203")
