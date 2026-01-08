@@ -8,7 +8,7 @@ import re
 
 # === 設定 ===
 PREDICT_DAYS = 20  # ゲームの予測回数
-st.set_page_config(page_title="株トレードゲーム", layout="wide")
+st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 (変更なし) ===
 MESSAGES = {
@@ -55,13 +55,18 @@ MESSAGES = {
 }
 
 def get_japanese_name(ticker):
-    """Yahoo!ファイナンス等から日本語社名を取得（簡易版）"""
+    """Yahoo!ファイナンス等から日本語社名を取得（強化版）"""
     try:
         t = yf.Ticker(ticker)
-        # yfinanceのinfo取得は重い場合があるので、タイムアウト処理を入れるのが理想ですが
-        # ここでは簡易的に取得失敗時はコードを返すようにしています
+        # infoへのアクセスは時間がかかる場合があるため、タイムアウト等を考慮すべきですが
+        # ここでは取得フィールドの優先順位をつけて取得を試みます
         info = t.info
-        return info.get('longName', ticker)
+        name = info.get('longName')
+        if not name:
+            name = info.get('shortName')
+        if not name:
+            name = ticker # 取得できなければコードそのまま
+        return name
     except:
         return ticker
 
@@ -69,18 +74,21 @@ def get_japanese_name(ticker):
 def get_stock_data(code_str):
     """データ取得ロジック"""
     code_str = str(code_str).strip().upper()
+    # 日本株の場合、数字4桁なら.Tをつける
     if re.match(r'^\d{4}$', code_str):
         ticker = f"{code_str}.T"
     else:
         ticker = code_str
 
     try:
+        # yfinanceのダウンロード
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
     except Exception as e:
         return None, f"ダウンロードエラー: {e}"
 
     if df.empty: return None, "データが見つかりません。コードを確認してください。"
     
+    # マルチインデックス対応（yfinanceのバージョンによる違いを吸収）
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
@@ -92,6 +100,7 @@ def get_stock_data(code_str):
     df['MA75'] = df['Close'].rolling(75).mean()
     df = df.dropna()
 
+    # ゲームに必要なデータ数を確保
     if len(df) < PREDICT_DAYS + 50: return None, "データ不足です（表示用に最低50日分必要です）。"
 
     df.index = pd.to_datetime(df.index)
@@ -124,11 +133,11 @@ def get_stock_data(code_str):
     return data, None
 
 def render_game_html(data):
+    # ユニークID生成（念のため）
     uid = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
     json_data = json.dumps(data)
     json_msgs = json.dumps(MESSAGES)
     
-    # HTML/JS本体
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -146,9 +155,12 @@ def render_game_html(data):
                 display: flex; justify-content: space-between; align-items: flex-end;
                 margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 15px;
             }}
-            /* 銘柄名とコードを並べて表示するスタイルに変更 */
-            .ticker-info {{ font-size: 20px; font-weight: 800; display: flex; align-items: baseline; gap: 10px; }}
-            .ticker-code {{ font-size: 16px; color: #9ca3af; font-family: monospace; font-weight: 400; }}
+            /* 銘柄名スタイルの修正: 色を白に強制し、折り返しを防止 */
+            .ticker-info {{ 
+                font-size: 20px; font-weight: 800; color: #ffffff;
+                display: flex; flex-direction: column; 
+            }}
+            .ticker-code {{ font-size: 14px; color: #9ca3af; font-family: monospace; font-weight: 400; margin-top: 4px; }}
             
             .stats-box {{ font-size: 14px; color: #9ca3af; display: flex; gap: 15px; align-items: center; }}
             .stat-val {{ font-weight: 800; font-size: 18px; font-family: monospace; }}
@@ -160,14 +172,15 @@ def render_game_html(data):
             }}
 
             .price-label-box {{
-                position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
-                background: rgba(0, 0, 0, 0.25); 
-                border: 1px solid rgba(255, 215, 0, 0.3);
-                padding: 10px 25px; border-radius: 12px;
+                position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+                background: rgba(30, 30, 30, 0.85); 
+                border: 1px solid rgba(255, 215, 0, 0.5);
+                padding: 8px 20px; border-radius: 8px;
                 text-align: center; pointer-events: none; z-index: 20; display: none;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             }}
-            .price-label-title {{ color: #FBBF24; font-size: 12px; font-weight: 600; letter-spacing: 1px; opacity: 0.9; }}
-            .price-label-val {{ color: #FFD700; font-size: 36px; font-weight: 900; font-family: monospace; line-height: 1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }}
+            .price-label-title {{ color: #FBBF24; font-size: 11px; font-weight: 600; letter-spacing: 1px; margin-bottom: 2px; }}
+            .price-label-val {{ color: #FFD700; font-size: 24px; font-weight: 900; font-family: monospace; line-height: 1; }}
 
             .overlay-anim {{
                 position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -210,8 +223,8 @@ def render_game_html(data):
         <div id="game-wrap" class="game-container">
             <div class="header">
                 <div class="ticker-info">
-                    <span>{data['name']}</span>
-                    <span class="ticker-code">({data['code']})</span>
+                    <span id="ticker-name">{data['name']}</span>
+                    <span class="ticker-code">{data['code']}</span>
                 </div>
                 <div class="stats-box">
                     <div>WIN: <span id="w-val" class="stat-val win-col">0</span></div>
@@ -265,7 +278,6 @@ def render_game_html(data):
                 crosshair: {{ vertLine: {{ color: '#555', labelBackgroundColor: '#555' }}, horzLine: {{ color: '#555', labelBackgroundColor: '#555' }} }}
             }});
 
-            // 設定: lastValueVisible: false と priceLineVisible: false でデフォルトの現在値ラインを消す
             const sM75 = chart.addLineSeries({{ 
                 color: '#a855f7', lineWidth: 1, 
                 crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false 
@@ -283,7 +295,7 @@ def render_game_html(data):
                 upColor: '#10b981', downColor: '#f43f5e', 
                 borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
                 wickUpColor: '#10b981', wickDownColor: '#f43f5e',
-                lastValueVisible: false, priceLineVisible: false // デフォルトの線を表示しない
+                lastValueVisible: false, priceLineVisible: false 
             }});
             
             const sNextOpen = chart.addCandlestickSeries({{ 
@@ -312,14 +324,13 @@ def render_game_html(data):
 
                 if (priceLine) sC.removePriceLine(priceLine);
                 
-                // ここで始値のみに黄色い点線を表示
+                // === 修正箇所: axisLabelVisibleをfalseにしてチャート上の視認性を確保 ===
                 priceLine = sC.createPriceLine({{ 
                     price: nextData.open, 
                     color: '#FFD700', 
-                    lineWidth: 2, 
-                    lineStyle: 2, // 2 = Dashed (点線)
-                    axisLabelVisible: true, 
-                    title: 'OPEN'
+                    lineWidth: 1,      // 線を少し細く
+                    lineStyle: 2,      // 点線
+                    axisLabelVisible: false, // 軸ラベル（右端）を非表示にする
                 }});
                 
                 sNextOpen.setData([{{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }}]);
@@ -414,7 +425,7 @@ def render_game_html(data):
     return html
 
 # === Streamlit UI ===
-st.title("💹 株トレードゲーム")
+st.title("💹 AI板読みトレーディング道場")
 st.markdown("""
 実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。
 - **BUY**: 陽線（始値より終値が高い）と予測
@@ -434,6 +445,5 @@ if start_btn:
     if error:
         st.error(error)
     else:
-        # ゲーム画面の生成（HTML埋め込み）
         game_html = render_game_html(stock_data)
         st.components.v1.html(game_html, height=650, scrolling=False)
