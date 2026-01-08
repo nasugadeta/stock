@@ -459,11 +459,12 @@ col_rule1, col_rule2, col_rule3 = st.columns(3)
 with col_rule1:
     st.success("**BUY**: 陽線（始値より終値が高い）と予測", icon="📈")
 
+with col_rule3:
+    st.info("**SKIP**: 自信がない時は見送り", icon="👀")
+
 with col_rule2:
     st.error("**SELL**: 陰線（始値より終値が低い）と予測", icon="📉")
 
-with col_rule3:
-    st.info("**SKIP**: 自信がない時は見送り", icon="👀")
 
 st.markdown("---")
 
