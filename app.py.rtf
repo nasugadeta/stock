@@ -1,0 +1,407 @@
+{\rtf1\ansi\ansicpg932\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 import streamlit as st\
+import yfinance as yf\
+import pandas as pd\
+import json\
+import random\
+import string\
+import re\
+\
+# === \uc0\u35373 \u23450  ===\
+PREDICT_DAYS = 20  # \uc0\u12466 \u12540 \u12512 \u12398 \u20104 \u28204 \u22238 \u25968 \
+st.set_page_config(page_title="\uc0\u26495 \u35501 \u12415 \u26666 \u12488 \u12524 \u12540 \u12489 \u12466 \u12540 \u12512 ", layout="wide")\
+\
+# === \uc0\u12513 \u12483 \u12475 \u12540 \u12472 \u12522 \u12473 \u12488 \u23450 \u32681  ===\
+MESSAGES = \{\
+    "god": [ # 80-100%\
+        "\uc0\u26410 \u26469 \u12363 \u12425 \u26469 \u12383 \u12435 \u12391 \u12377 \u12363 \u65311  \u12525 \u12488 6\u12398 \u30058 \u21495 \u12418 \u25945 \u12360 \u12390 \u12367 \u12384 \u12373 \u12356 \u12290 ",\
+        "SEC\uc0\u65288 \u35388 \u21048 \u21462 \u24341 \u22996 \u21729 \u20250 \u65289 \u12364 \u12354 \u12394 \u12383 \u12398 \u30435 \u35222 \u12434 \u22987 \u12417 \u12414 \u12375 \u12383 \u12290 ",\
+        "\uc0\u22825 \u25165 \u29694 \u12427 \u12290 \u26126 \u26085 \u12363 \u12425 \u12501 \u12449 \u12531 \u12489 \u12510 \u12493 \u12540 \u12472 \u12515 \u12540 \u12434 \u21517 \u20055 \u12387 \u12390 \u12367 \u12384 \u12373 \u12356 \u12290 ",\
+        "\uc0\u12496 \u12501 \u12455 \u12483 \u12488 \u12364 \u12354 \u12394 \u12383 \u12398 \u38651 \u35441 \u30058 \u21495 \u12434 \u30693 \u12426 \u12383 \u12364 \u12387 \u12390 \u12356 \u12414 \u12377 \u12290 ",\
+        "\uc0\u12381 \u12398 \u36879 \u35222 \u33021 \u21147 \u12289 \u12459 \u12472 \u12494 \u12391 \u12399 \u20351 \u12431 \u12394 \u12356 \u12391 \u12367 \u12384 \u12373 \u12356 \u12397 \u12290 ",\
+        "\uc0\u20840 \u30693 \u20840 \u33021 \u12398 \u31070 \u12391 \u12377 \u12363 \u65311  \u12381 \u12428 \u12392 \u12418 \u12481 \u12515 \u12540 \u12488 \u12364 \u22730 \u12428 \u12390 \u12356 \u12414 \u12377 \u12363 \u65311 "\
+    ],\
+    "pro": [ # 60-79%\
+        "\uc0\u32032 \u26228 \u12425 \u12375 \u12356 \u65281  \u30456 \u22580 \u12398 \u31070 \u27096 \u12364 \u12354 \u12394 \u12383 \u12395 \u24494 \u31505 \u12435 \u12391 \u12356 \u12414 \u12377 \u12290 ",\
+        "\uc0\u20170 \u12398 \u12354 \u12394 \u12383 \u12394 \u12425 \u12289 \u30446 \u12434 \u12388 \u12406 \u12387 \u12390 \u30330 \u27880 \u12375 \u12390 \u12418 \u21213 \u12390 \u12427 \u12391 \u12375 \u12423 \u12358 \u12290 ",\
+        "\uc0\u20685 \u12356 \u12383 \u12425 \u36000 \u12369 \u12290 \u12488 \u12524 \u12540 \u12489 \u12384 \u12369 \u12391 \u29983 \u12365 \u12390 \u12356 \u12369 \u12427 \u25165 \u33021 \u12391 \u12377 \u12290 ",\
+        "\uc0\u12454 \u12457 \u12540 \u12523 \u34903 \u12364 \u12354 \u12394 \u12383 \u12434 \u12504 \u12483 \u12489 \u12495 \u12531 \u12486 \u12451 \u12531 \u12464 \u12375 \u12395 \u26469 \u12414 \u12377 \u12424 \u12290 ",\
+        "\uc0\u23436 \u29863 \u12394 \u35501 \u12415 \u12391 \u12377 \u12290 \u12472 \u12519 \u12540 \u12472 \u12539 \u12477 \u12525 \u12473 \u12418 \u35064 \u36275 \u12391 \u36867 \u12370 \u20986 \u12377 \u12524 \u12505 \u12523 \u12290 ",\
+        "\uc0\u32654 \u12375 \u12356 \u12488 \u12524 \u12540 \u12489 \u12391 \u12377 \u12290 \u33464 \u34899 \u28857 \u12418 \u21152 \u31639 \u12375 \u12390 \u12362 \u12365 \u12414 \u12377 \u12290 "\
+    ],\
+    "normal": [ # 40-59%\
+        "\uc0\u12467 \u12452 \u12531 \u12488 \u12473 \u12391 \u27770 \u12417 \u12390 \u12418 \u12289 \u12384 \u12356 \u12383 \u12356 \u21516 \u12376 \u32080 \u26524 \u12395 \u12394 \u12426 \u12414 \u12377 \u12424 \u12290 ",\
+        "\uc0\u12469 \u12523 \u12398 \u12480 \u12540 \u12484 \u25237 \u12370 \u12392 \u12356 \u12356 \u21213 \u36000 \u12391 \u12377 \u12290 ",\
+        "\uc0\u20961 \u20154 \u12391 \u12377 \u12397 \u12290 \u25163 \u25968 \u26009 \u36000 \u12369 \u12375 \u12390 \u36039 \u29987 \u12364 \u28342 \u12369 \u12427 \u12497 \u12479 \u12540 \u12531 \u12391 \u12377 \u12290 ",\
+        "\uc0\u24746 \u12367 \u12399 \u12394 \u12356 \u12391 \u12377 \u12364 \u12289 AI\u12395 \u20181 \u20107 \u12434 \u22890 \u12431 \u12428 \u12427 \u12524 \u12505 \u12523 \u12391 \u12377 \u12290 ",\
+        "\uc0\u21487 \u12418 \u12394 \u12367 \u19981 \u21487 \u12418 \u12394 \u12367 \u12290 \u35352 \u25014 \u12395 \u27531 \u12425 \u12394 \u12356 \u12488 \u12524 \u12540 \u12489 \u12391 \u12375 \u12383 \u12290 ",\
+        "\uc0\u12503 \u12521 \u12510 \u12452 \u12476 \u12525 \u12290 \u26178 \u38291 \u12398 \u28961 \u39364 \u12391 \u12375 \u12383 \u12397 \u12290 "\
+    ],\
+    "bad": [ # 20-39%\
+        "\uc0\u39178 \u20998 \u20057 \u12290 \u30456 \u22580 \u12395 \u12362 \u37329 \u12434 \u23492 \u20184 \u12375 \u12390 \u12367 \u12428 \u12390 \u12354 \u12426 \u12364 \u12392 \u12358 \u12290 ",\
+        "\uc0\u24341 \u36864 \u12434 \u12362 \u12377 \u12377 \u12417 \u12375 \u12414 \u12377 \u12290 \u30495 \u38754 \u30446 \u12395 \u12290 ",\
+        "\uc0\u12418 \u12375 \u12363 \u12375 \u12390 \u12289 \u30011 \u38754 \u12434 \u36870 \u12373 \u12414 \u12395 \u35211 \u12390 \u12356 \u12414 \u12379 \u12435 \u12363 \u65311 ",\
+        "\uc0\u20170 \u26085 \u12398 \u25613 \u22833 \u12399 \u21193 \u24375 \u20195 \'85\'85\u12395 \u12375 \u12390 \u12399 \u39640 \u12377 \u12366 \u12414 \u12379 \u12435 \u12363 \u65311 ",\
+        "\uc0\u24746 \u12356 \u12371 \u12392 \u12399 \u35328 \u12356 \u12414 \u12379 \u12435 \u12290 \u23450 \u26399 \u38928 \u37329 \u12395 \u12375 \u12390 \u12362 \u12365 \u12414 \u12375 \u12423 \u12358 \u12290 ",\
+        "\uc0\u12354 \u12394 \u12383 \u12364 \u36023 \u12387 \u12383 \u30636 \u38291 \u12289 \u12450 \u12523 \u12468 \u12364 \u22770 \u12426 \u12434 \u28020 \u12403 \u12379 \u12390 \u12356 \u12414 \u12377 \u12397 \u12290 "\
+    ],\
+    "disaster": [ # 0-19%\
+        "\uc0\u36870 \u12395 \u12377 \u12372 \u12356 \u65281  \u12371 \u12371 \u12414 \u12391 \u22806 \u12377 \u25165 \u33021 \u12399 \u31232 \u26377 \u12391 \u12377 \u12424 \u12290 ",\
+        "\uc0\u12354 \u12394 \u12383 \u12398 \u12302 \u36023 \u12356 \u12303 \u12399 \u12289 \u20840 \u20154 \u39006 \u12408 \u12398 \u12302 \u22770 \u12426 \u12303 \u12471 \u12464 \u12490 \u12523 \u12391 \u12377 \u12290 ",\
+        "PC\uc0\u12398 \u38651 \u28304 \u12364 \u20837 \u12387 \u12390 \u12356 \u12394 \u12356 \u21487 \u33021 \u24615 \u12364 \u12354 \u12426 \u12414 \u12377 \u12290 \u30906 \u35469 \u12375 \u12390 \u12367 \u12384 \u12373 \u12356 \u12290 ",\
+        "\uc0\u25165 \u33021 \u12398 \u28961 \u39364 \u36963 \u12356 \u12290 \u36870 \u24373 \u12426 \u12377 \u12428 \u12400 \u20740 \u19975 \u38263 \u32773 \u12395 \u12394 \u12428 \u12414 \u12377 \u12290 ",\
+        "\uc0\u21628 \u21560 \u12434 \u12377 \u12427 \u12424 \u12358 \u12395 \u25613 \u12434 \u12375 \u12390 \u12356 \u12414 \u12377 \u12397 \u12290 ",\
+        "\uc0\u12362 \u31059 \u12356 \u12395 \u34892 \u12387 \u12383 \u26041 \u12364 \u12356 \u12356 \u12363 \u12418 \u12375 \u12428 \u12414 \u12379 \u12435 \u12290 "\
+    ]\
+\}\
+\
+def get_japanese_name(ticker):\
+    """Yahoo!\uc0\u12501 \u12449 \u12452 \u12490 \u12531 \u12473 \u31561 \u12363 \u12425 \u26085 \u26412 \u35486 \u31038 \u21517 \u12434 \u21462 \u24471 \u65288 \u31777 \u26131 \u29256 \u65289 """\
+    try:\
+        t = yf.Ticker(ticker)\
+        info = t.info\
+        return info.get('longName', ticker)\
+    except:\
+        return ticker\
+\
+@st.cache_data(ttl=3600) # 1\uc0\u26178 \u38291 \u12461 \u12515 \u12483 \u12471 \u12517 \u12375 \u12390 \u21205 \u20316 \u12434 \u36605 \u12367 \u12377 \u12427 \
+def get_stock_data(code_str):\
+    """\uc0\u12487 \u12540 \u12479 \u21462 \u24471 \u12525 \u12472 \u12483 \u12463 """\
+    code_str = str(code_str).strip().upper()\
+    if re.match(r'^\\d\{4\}$', code_str):\
+        ticker = f"\{code_str\}.T"\
+    else:\
+        ticker = code_str\
+\
+    try:\
+        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)\
+    except Exception as e:\
+        return None, f"\uc0\u12480 \u12454 \u12531 \u12525 \u12540 \u12489 \u12456 \u12521 \u12540 : \{e\}"\
+\
+    if df.empty: return None, "\uc0\u12487 \u12540 \u12479 \u12364 \u35211 \u12388 \u12363 \u12426 \u12414 \u12379 \u12435 \u12290 \u12467 \u12540 \u12489 \u12434 \u30906 \u35469 \u12375 \u12390 \u12367 \u12384 \u12373 \u12356 \u12290 "\
+    \
+    # \uc0\u12510 \u12523 \u12481 \u12452 \u12531 \u12487 \u12483 \u12463 \u12473 \u23550 \u24540 \
+    if isinstance(df.columns, pd.MultiIndex):\
+        df.columns = df.columns.get_level_values(0)\
+    \
+    if 'Close' not in df.columns: return None, "\uc0\u26666 \u20385 \u12487 \u12540 \u12479 (Close)\u12364 \u12354 \u12426 \u12414 \u12379 \u12435 \u12290 "\
+\
+    # \uc0\u12486 \u12463 \u12491 \u12459 \u12523 \u25351 \u27161 \u35336 \u31639 \
+    df['MA5'] = df['Close'].rolling(5).mean()\
+    df['MA25'] = df['Close'].rolling(25).mean()\
+    df['MA75'] = df['Close'].rolling(75).mean()\
+    df = df.dropna()\
+\
+    if len(df) < PREDICT_DAYS + 50: return None, "\uc0\u12487 \u12540 \u12479 \u19981 \u36275 \u12391 \u12377 \u65288 \u34920 \u31034 \u29992 \u12395 \u26368 \u20302 50\u26085 \u20998 \u24517 \u35201 \u12391 \u12377 \u65289 \u12290 "\
+\
+    df.index = pd.to_datetime(df.index)\
+    df['date_str'] = df.index.strftime('%Y-%m-%d')\
+\
+    ctx = df.iloc[:-PREDICT_DAYS]\
+    tgt = df.iloc[-PREDICT_DAYS:]\
+\
+    # JSON\uc0\u21270 \u12398 \u12383 \u12417 \u12398 \u12487 \u12540 \u12479 \u25972 \u24418 \
+    def make_c(d):\
+        return [\{"time": r['date_str'], "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close']\} for _, r in d.iterrows()]\
+    def make_v(d):\
+        return [\{"time": r['date_str'], "value": r['Volume'], "color": 'rgba(200, 200, 200, 0.4)'\} for _, r in d.iterrows()]\
+    def make_l(d, col):\
+        return [\{"time": r['date_str'], "value": r[col]\} for _, r in d.iterrows()]\
+\
+    name = get_japanese_name(ticker)\
+    \
+    data = \{\
+        "name": name, "code": ticker,\
+        "ctx": \{\
+            "c": make_c(ctx), "v": make_v(ctx),\
+            "m5": make_l(ctx, 'MA5'), "m25": make_l(ctx, 'MA25'), "m75": make_l(ctx, 'MA75')\
+        \},\
+        "tgt": \{\
+            "c": make_c(tgt), "v": make_v(tgt),\
+            "m5": make_l(tgt, 'MA5'), "m25": make_l(tgt, 'MA25'), "m75": make_l(tgt, 'MA75')\
+        \}\
+    \}\
+    return data, None\
+\
+def render_game_html(data):\
+    uid = ''.join(random.choices(string.ascii_letters + string.digits, k=10))\
+    json_data = json.dumps(data)\
+    json_msgs = json.dumps(MESSAGES)\
+    \
+    # HTML/JS\uc0\u26412 \u20307 \
+    html = f"""\
+    <!DOCTYPE html>\
+    <html>\
+    <head>\
+        <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>\
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">\
+        <style>\
+            body \{\{ margin: 0; padding: 0; background: #0e1117; font-family: 'Inter', sans-serif; \}\}\
+            .game-container \{\{\
+                background: #1a1a1a; color: #f3f4f6; padding: 20px; border-radius: 16px;\
+                width: 100%; max-width: 900px; margin: 0 auto; box-sizing: border-box;\
+                box-shadow: 0 10px 25px rgba(0,0,0,0.5);\
+            \}\}\
+            .header \{\{\
+                display: flex; justify-content: space-between; align-items: flex-end;\
+                margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 15px;\
+            \}\}\
+            .ticker-name \{\{ font-size: 20px; font-weight: 800; \}\}\
+            .ticker-code \{\{ font-size: 14px; color: #9ca3af; font-family: monospace; \}\}\
+            .stats-box \{\{ font-size: 14px; color: #9ca3af; display: flex; gap: 15px; align-items: center; \}\}\
+            .stat-val \{\{ font-weight: 800; font-size: 18px; font-family: monospace; \}\}\
+            .win-col \{\{ color: #34d399; \}\} .lose-col \{\{ color: #f87171; \}\}\
+\
+            .chart-wrapper \{\{\
+                position: relative; width: 100%; height: 450px;\
+                border-radius: 12px; overflow: hidden; border: 1px solid #333; background: #222;\
+            \}\}\
+\
+            .price-label-box \{\{\
+                position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);\
+                background: rgba(0, 0, 0, 0.25); \
+                border: 1px solid rgba(255, 215, 0, 0.3);\
+                padding: 10px 25px; border-radius: 12px;\
+                text-align: center; pointer-events: none; z-index: 20; display: none;\
+            \}\}\
+            .price-label-title \{\{ color: #FBBF24; font-size: 12px; font-weight: 600; letter-spacing: 1px; opacity: 0.9; \}\}\
+            .price-label-val \{\{ color: #FFD700; font-size: 36px; font-weight: 900; font-family: monospace; line-height: 1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.8); \}\}\
+\
+            .overlay-anim \{\{\
+                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);\
+                font-size: 100px; font-weight: 900; opacity: 0; pointer-events: none; z-index: 30;\
+                text-shadow: 0 5px 15px rgba(0,0,0,0.5); white-space: nowrap;\
+            \}\}\
+\
+            .btn-group \{\{ display: flex; gap: 12px; margin-top: 20px; width: 100%; \}\}\
+            .game-btn \{\{\
+                flex: 1; padding: 16px; border: none; border-radius: 12px;\
+                font-weight: 800; font-size: 16px; cursor: pointer; transition: all 0.2s;\
+                color: #fff;\
+            \}\}\
+            .game-btn:hover \{\{ filter: brightness(1.1); transform: translateY(-2px); \}\}\
+            .game-btn:active \{\{ transform: translateY(0); filter: brightness(0.95); \}\}\
+            .btn-buy \{\{ background: linear-gradient(135deg, #34d399 0%, #10b981 100%); \}\}\
+            .btn-sell \{\{ background: linear-gradient(135deg, #f87171 0%, #ef4444 100%); \}\}\
+            .btn-skip \{\{ background: #374151; color: #d1d5db; flex: 0.4; \}\}\
+\
+            .modal-overlay \{\{\
+                display: none; position: absolute; inset: 0;\
+                background: rgba(26, 26, 26, 0.95); backdrop-filter: blur(5px);\
+                flex-direction: column; justify-content: center; align-items: center; z-index: 100;\
+                border-radius: 16px;\
+            \}\}\
+            .modal-content \{\{\
+                background: #27272a; padding: 40px; border-radius: 20px; text-align: center;\
+                border: 1px solid #3f3f46; box-shadow: 0 20px 40px rgba(0,0,0,0.4);\
+                max-width: 90%;\
+            \}\}\
+            .result-score \{\{ font-size: 60px; font-weight: 900; margin: 0 0 20px 0; line-height: 1; \}\}\
+            .result-msg \{\{ font-size: 16px; color: #d1d5db; margin: 0 0 30px 0; line-height: 1.6; font-weight: 600; \}\}\
+            .modal-btn \{\{\
+                padding: 12px 30px; background: #3b82f6; color: white; border: none;\
+                border-radius: 30px; cursor: pointer; font-size: 16px; font-weight: 800;\
+            \}\}\
+        </style>\
+    </head>\
+    <body>\
+        <div id="game-wrap" class="game-container">\
+            <div class="header">\
+                <div>\
+                    <div class="ticker-name">\{data['name']\}</div>\
+                    <div class="ticker-code">\{data['code']\}</div>\
+                </div>\
+                <div class="stats-box">\
+                    <div>WIN: <span id="w-val" class="stat-val win-col">0</span></div>\
+                    <div>LOSE: <span id="l-val" class="stat-val lose-col">0</span></div>\
+                    <div style="margin-left: 10px; background: #333; padding: 4px 10px; border-radius: 6px;">\
+                        REMAIN: <span id="r-val" class="stat-val" style="color: #fbbf24;">\{len(data['tgt']['c'])\}</span>\
+                    </div>\
+                </div>\
+            </div>\
+\
+            <div class="chart-wrapper">\
+                <div id="chart-area" style="width:100%; height:100%;"></div>\
+                \
+                <div id="price-label" class="price-label-box">\
+                    <div class="price-label-title">NEXT OPEN</div>\
+                    <div id="price-val" class="price-label-val">----</div>\
+                </div>\
+                <div id="ov-anim" class="overlay-anim"></div>\
+            </div>\
+\
+            <div class="btn-group">\
+                <button id="btn-up" class="game-btn btn-buy">\uc0\u9650  BUY</button>\
+                <button id="btn-skip" class="game-btn btn-skip">SKIP</button>\
+                <button id="btn-down" class="game-btn btn-sell">\uc0\u9660  SELL</button>\
+            </div>\
+            \
+            <div id="res-modal" class="modal-overlay">\
+                <div class="modal-content">\
+                    <div style="font-size:18px; font-weight:800; color:#a1a1aa; margin-bottom:10px;">ACCURACY RATE</div>\
+                    <div id="score-val" class="result-score"></div>\
+                    <div id="msg-val" class="result-msg"></div> \
+                    <button onclick="document.getElementById('res-modal').style.display='none'" class="modal-btn">\uc0\u38281 \u12376 \u12427 </button>\
+                </div>\
+            </div>\
+        </div>\
+\
+        <script>\
+        (function()\{\{\
+            const d = \{json_data\};\
+            const MSGS = \{json_msgs\};\
+            let idx = 0;\
+            let w = 0, l = 0;\
+            let ac = null;\
+            let priceLine = null;\
+\
+            const chart = LightweightCharts.createChart(document.getElementById('chart-area'), \{\{\
+                layout: \{\{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" \}\},\
+                grid: \{\{ vertLines: \{\{ visible: false \}\}, horzLines: \{\{ visible: true, color: '#333' \}\} \}\},\
+                timeScale: \{\{ borderColor: '#333', timeVisible: true \}\},\
+                rightPriceScale: \{\{ borderColor: '#333', scaleMargins: \{\{ top: 0.1, bottom: 0.2 \}\} \}\},\
+                crosshair: \{\{ vertLine: \{\{ color: '#555', labelBackgroundColor: '#555' \}\}, horzLine: \{\{ color: '#555', labelBackgroundColor: '#555' \}\} \}\}\
+            \}\});\
+\
+            const sM75 = chart.addLineSeries(\{\{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false \}\});\
+            const sM25 = chart.addLineSeries(\{\{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false \}\});\
+            const sM5  = chart.addLineSeries(\{\{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false \}\});\
+            const sC = chart.addCandlestickSeries(\{\{ upColor: '#10b981', downColor: '#f43f5e', borderUpColor: '#10b981', borderDownColor: '#f43f5e', wickUpColor: '#10b981', wickDownColor: '#f43f5e' \}\});\
+            const sNextOpen = chart.addCandlestickSeries(\{\{ upColor: '#FFD700', downColor: '#FFD700', borderUpColor: '#FFD700', borderDownColor: '#FFD700', wickUpColor: '#FFD700', wickDownColor: '#FFD700' \}\});\
+            const sV = chart.addHistogramSeries(\{\{ priceFormat: \{\{ type: 'volume' \}\}, priceScaleId: '', scaleMargins: \{\{ top: 0.8, bottom: 0 \}\} \}\});\
+\
+            function updateNextOpenDisplay() \{\{\
+                if (idx >= d.tgt.c.length) \{\{\
+                    sNextOpen.setData([]);\
+                    document.getElementById('price-label').style.display = 'none';\
+                    if (priceLine) \{\{ sC.removePriceLine(priceLine); priceLine = null; \}\}\
+                    return;\
+                \}\}\
+                const nextData = d.tgt.c[idx];\
+                document.getElementById('price-val').innerText = nextData.open.toLocaleString();\
+                document.getElementById('price-label').style.display = 'block';\
+\
+                if (priceLine) sC.removePriceLine(priceLine);\
+                priceLine = sC.createPriceLine(\{\{ price: nextData.open, color: '#FFD700', lineWidth: 2, lineStyle: 2, axisLabelVisible: false \}\});\
+                sNextOpen.setData([\{\{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open \}\}]);\
+            \}\}\
+\
+            function render(i) \{\{\
+                sC.setData([...d.ctx.c, ...d.tgt.c.slice(0, i)]);\
+                sV.setData([...d.ctx.v, ...d.tgt.v.slice(0, i)]);\
+                sM5.setData([...d.ctx.m5, ...d.tgt.m5.slice(0, i)]);\
+                sM25.setData([...d.ctx.m25, ...d.tgt.m25.slice(0, i)]);\
+                sM75.setData([...d.ctx.m75, ...d.tgt.m75.slice(0, i)]);\
+                updateNextOpenDisplay();\
+            \}\}\
+\
+            render(0);\
+            const totalBars = d.ctx.c.length;\
+            chart.timeScale().setVisibleLogicalRange(\{\{ from: totalBars - 50, to: totalBars \}\});\
+\
+            function beep(t) \{\{\
+                try \{\{\
+                    if(!ac) ac=new(window.AudioContext||window.webkitAudioContext)();\
+                    if(ac.state==='suspended') ac.resume();\
+                    const o=ac.createOscillator(), g=ac.createGain();\
+                    o.connect(g); g.connect(ac.destination);\
+                    const n=ac.currentTime;\
+                    if(t==='w') \{\{ o.freq.setValueAtTime(880,n); o.freq.expRampToValueAtTime(1760,n+.1); g.gain.setValueAtTime(.1,n); g.gain.linRampToValueAtTime(0,n+.4); \}\}\
+                    else if(t==='l') \{\{ o.type='sawtooth'; o.freq.setValueAtTime(150,n); g.gain.setValueAtTime(.1,n); g.gain.linRampToValueAtTime(0,n+.3); \}\}\
+                    else \{\{ o.type='square'; o.freq.setValueAtTime(500,n); g.gain.setValueAtTime(.05,n); g.gain.linRampToValueAtTime(0,n+.1); \}\}\
+                    o.start(n); o.stop(n+(t==='w'?.4:t==='l'?.3:.1));\
+                \}\} catch(e)\{\{\}\}\
+            \}\}\
+\
+            function playTurn(act) \{\{\
+                if(idx>=d.tgt.c.length) return;\
+                const next=d.tgt.c[idx];\
+                const isUp=next.close>=next.open;\
+                let txt='SKIP', col='#9ca3af', snd='s';\
+                \
+                if(act!=='skip') \{\{\
+                    const win=(act==='up'&&isUp)||(act==='down'&&!isUp);\
+                    if(win) \{\{ w++; txt='\uc0\u11093 '; col='#34d399'; snd='w'; \}\}\
+                    else \{\{ l++; txt='\uc0\u10060 '; col='#f87171'; snd='l'; \}\}\
+                \}\}\
+                beep(snd);\
+\
+                const ov=document.getElementById('ov-anim');\
+                ov.innerText=txt; ov.style.color=col;\
+                ov.style.transition='none'; ov.style.opacity=1; ov.style.transform='translate(-50%,-50%) scale(1.2)';\
+                requestAnimationFrame(()=>\{\{\
+                    setTimeout(()=>\{\{ ov.style.transition='all 1s ease-out'; ov.style.opacity=0; ov.style.transform='translate(-50%,-50%) scale(0.8)'; \}\}, 50);\
+                \}\});\
+\
+                document.getElementById('w-val').innerText=w;\
+                document.getElementById('l-val').innerText=l;\
+                document.getElementById('r-val').innerText=d.tgt.c.length-(idx+1);\
+\
+                idx++;\
+                render(idx);\
+                chart.timeScale().scrollToPosition(0, true);\
+\
+                if(idx>=d.tgt.c.length) \{\{\
+                    setTimeout(()=>\{\{\
+                        const total = w + l;\
+                        const rate = total ? Math.round(w / total * 100) : 0;\
+                        const sEl = document.getElementById('score-val');\
+                        const mEl = document.getElementById('msg-val');\
+                        sEl.innerText = rate + '%';\
+                        sEl.style.color = rate >= 50 ? '#34d399' : '#f87171';\
+                        \
+                        let cat = 'disaster';\
+                        if (rate >= 80) cat = 'god';\
+                        else if (rate >= 60) cat = 'pro';\
+                        else if (rate >= 40) cat = 'normal';\
+                        else if (rate >= 20) cat = 'bad';\
+                        \
+                        const list = MSGS[cat];\
+                        mEl.innerText = list[Math.floor(Math.random() * list.length)];\
+                        document.getElementById('res-modal').style.display='flex';\
+                    \}\}, 1000);\
+                \}\}\
+            \}\}\
+\
+            document.getElementById('btn-up').onclick = () => playTurn('up');\
+            document.getElementById('btn-skip').onclick = () => playTurn('skip');\
+            document.getElementById('btn-down').onclick = () => playTurn('down');\
+\
+        \}\})();\
+        </script>\
+    </body>\
+    </html>\
+    """\
+    return html\
+\
+# === Streamlit UI ===\
+st.title("\uc0\u55357 \u56505  AI\u26495 \u35501 \u12415 \u12488 \u12524 \u12540 \u12487 \u12451 \u12531 \u12464 \u36947 \u22580 ")\
+st.markdown("""\
+\uc0\u23455 \u38555 \u12398 \u26666 \u20385 \u12487 \u12540 \u12479 \u12434 \u20351 \u12387 \u12383 **\u12300 \u27425 \u12398 \u36275 \u12364 \u19978 \u12364 \u12427 \u12363 \u19979 \u12364 \u12427 \u12363 \u12301 **\u12434 \u20104 \u28204 \u12377 \u12427 \u12466 \u12540 \u12512 \u12391 \u12377 \u12290 \
+- **BUY**: \uc0\u38525 \u32218 \u65288 \u22987 \u20516 \u12424 \u12426 \u32066 \u20516 \u12364 \u39640 \u12356 \u65289 \u12392 \u20104 \u28204 \
+- **SELL**: \uc0\u38512 \u32218 \u65288 \u22987 \u20516 \u12424 \u12426 \u32066 \u20516 \u12364 \u20302 \u12356 \u65289 \u12392 \u20104 \u28204 \
+- **SKIP**: \uc0\u33258 \u20449 \u12364 \u12394 \u12356 \u26178 \u12399 \u35211 \u36865 \u12426 \
+""")\
+\
+# \uc0\u12469 \u12452 \u12489 \u12496 \u12540 \u12414 \u12383 \u12399 \u19978 \u37096 \u12395 \u20837 \u21147 \u12501 \u12457 \u12540 \u12512 \
+col1, col2 = st.columns([1, 3])\
+with col1:\
+    code = st.text_input("\uc0\u35388 \u21048 \u12467 \u12540 \u12489  (\u20363 : 7203)", "7203")\
+    start_btn = st.button("\uc0\u12466 \u12540 \u12512 \u38283 \u22987 ", type="primary")\
+\
+if start_btn:\
+    with st.spinner(f'\{code\} \uc0\u12398 \u12487 \u12540 \u12479 \u12434 \u21462 \u24471 \u20013 ...'):\
+        stock_data, error = get_stock_data(code)\
+    \
+    if error:\
+        st.error(error)\
+    else:\
+        # \uc0\u12466 \u12540 \u12512 \u30011 \u38754 \u12398 \u29983 \u25104 \u65288 HTML\u22475 \u12417 \u36796 \u12415 \u65289 \
+        game_html = render_game_html(stock_data)\
+        st.components.v1.html(game_html, height=650, scrolling=False)}
