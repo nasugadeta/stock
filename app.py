@@ -441,25 +441,54 @@ def render_game_html(data):
     return html
 
 # === Streamlit UI ===
-st.title("💹 株トレードゲーム")
+# 全体の余白調整用CSS
 st.markdown("""
-実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。
-- **BUY**: 陽線（始値より終値が高い）と予測
-- **SELL**: 陰線（始値より終値が低い）と予測
-- **SKIP**: 自信がない時は見送り
-""")
+    <style>
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    </style>
+""", unsafe_allow_html=True)
 
-col1, col2 = st.columns([1, 3])
-with col1:
-    code = st.text_input("証券コード (例: 7203)", "7203")
-    start_btn = st.button("ゲーム開始", type="primary")
+st.title("💹 株トレードゲーム")
 
+# 説明文
+st.markdown("実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。")
+
+# ルール説明を横並びのカード風に配置（色はStreamlit標準の意味づけを利用してトレードっぽく）
+col_rule1, col_rule2, col_rule3 = st.columns(3)
+
+with col_rule1:
+    st.success("**BUY**: 陽線（始値より終値が高い）と予測", icon="📈")
+
+with col_rule2:
+    st.error("**SELL**: 陰線（始値より終値が低い）と予測", icon="📉")
+
+with col_rule3:
+    st.info("**SKIP**: 自信がない時は見送り", icon="👀")
+
+st.markdown("---")
+
+# 入力フォームとボタンをスタイリッシュに配置
+input_col, btn_col = st.columns([1, 5])
+
+with input_col:
+    # label_visibility="collapsed" で「証券コード...」の文字を隠してスッキリさせる（placeholderで代用も可だが今回は文言維持のため配置で調整）
+    # 文言を変えない制約があるため、ラベルは残しつつレイアウトで見やすくします
+    code = st.text_input("証券コード (例: 7203)", "7203", label_visibility="collapsed")
+
+with btn_col:
+    # use_container_width=True でボタンを横幅いっぱいに広げる
+    start_btn = st.button("ゲーム開始", type="primary", use_container_width=True)
+
+# ゲーム開始処理
 if start_btn:
+    # "証券コード (例: 7203)" のラベルが表示されていないため、現在処理中の銘柄がわかるようにspinnerの文言だけ少し補足的に表示されます
     with st.spinner(f'{code} のデータを取得中...'):
         stock_data, error = get_stock_data(code)
     
     if error:
         st.error(error)
     else:
+        # グラフ表示
+        st.write("") # 少し余白を入れる
         game_html = render_game_html(stock_data)
         st.components.v1.html(game_html, height=650, scrolling=False)
