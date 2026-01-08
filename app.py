@@ -8,7 +8,7 @@ import re
 
 # === 設定 ===
 PREDICT_DAYS = 20  # ゲームの予測回数
-st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
+st.set_page_config(page_title="株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 (変更なし) ===
 MESSAGES = {
