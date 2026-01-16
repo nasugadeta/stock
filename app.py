@@ -164,15 +164,14 @@ def process_data(df, mode, selected_date_str=None):
 
     return {"ctx": ctx_data, "tgt": tgt_data}, None
 
-def render_game_html(data, ticker_name, ticker_code, mode):
+def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_label):
     json_data = json.dumps(data)
+    json_sub = json.dumps(sub_data)
     json_msgs = json.dumps(MESSAGES)
     
-    # 5分足の場合、時刻フォーマットをHH:mmにする
+    # メインチャートの時間設定
     time_scale_opts = "{ timeVisible: true, secondsVisible: false }"
     if mode == '5m':
-        # useMasculine: false にして、渡されたTimestamp(UTC扱い)をそのまま表示させる
-        # 15:30 などをそのまま出す
         time_scale_opts = """{
             timeVisible: true, 
             secondsVisible: false,
@@ -209,8 +208,14 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             .win-col {{ color: #34d399; }} .lose-col {{ color: #f87171; }}
 
             .chart-wrapper {{
-                position: relative; width: 100%; height: 450px;
+                position: relative; width: 100%; height: 400px;
                 border-radius: 12px; overflow: hidden; border: 1px solid #333; background: #222;
+                margin-bottom: 20px;
+            }}
+            .sub-chart-wrapper {{
+                position: relative; width: 100%; height: 250px;
+                border-radius: 12px; overflow: hidden; border: 1px solid #333; background: #222;
+                margin-top: 10px;
             }}
             .price-label-box {{
                 position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
@@ -248,6 +253,11 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             .result-score {{ font-size: 60px; font-weight: 900; margin: 0 0 20px 0; line-height: 1; }}
             .result-msg {{ font-size: 16px; color: #d1d5db; margin: 0 0 30px 0; line-height: 1.6; font-weight: 600; }}
             .modal-btn {{ padding: 12px 30px; background: #3b82f6; color: white; border: none; border-radius: 30px; cursor: pointer; font-size: 16px; font-weight: 800; }}
+
+            .sub-chart-label {{
+                position: absolute; top: 10px; left: 10px;
+                background: rgba(0,0,0,0.6); color: #ccc; font-size: 12px; padding: 2px 6px; border-radius: 4px; pointer-events: none; z-index: 10;
+            }}
         </style>
     </head>
     <body>
@@ -278,6 +288,11 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                 <div id="ov-anim" class="overlay-anim"></div>
             </div>
 
+            <div class="sub-chart-wrapper">
+                <div class="sub-chart-label">上位足: {sub_mode_label}</div>
+                <div id="sub-chart-area" style="width:100%; height:100%;"></div>
+            </div>
+
             <div class="btn-group">
                 <button id="btn-up" class="game-btn btn-buy">▲ BUY</button>
                 <button id="btn-skip" class="game-btn btn-skip">SKIP</button>
@@ -301,6 +316,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
         <script>
         (function(){{
             const d = {json_data};
+            const subD = {json_sub};
             const MSGS = {json_msgs};
             const ROUND_LEN = 20;
 
@@ -309,6 +325,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             let w = 0, l = 0;
             let ac = null; let priceLine = null;
 
+            // === Main Chart ===
             const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {{
                 layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
                 grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
@@ -338,6 +355,32 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                 lastValueVisible: false, priceLineVisible: false 
             }});
 
+            // === Sub Chart ===
+            const subChart = LightweightCharts.createChart(document.getElementById('sub-chart-area'), {{
+                layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
+                grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
+                rightPriceScale: {{ borderColor: '#333' }},
+                timeScale: {{ borderVisible: false }}
+            }});
+            
+            const ssM75 = subChart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
+            const ssM25 = subChart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
+            const ssM5  = subChart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
+            
+            const ssC = subChart.addCandlestickSeries({{ 
+                upColor: '#10b981', downColor: '#f43f5e', 
+                borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
+                wickUpColor: '#10b981', wickDownColor: '#f43f5e'
+            }});
+
+            // Initialize Sub Chart Data
+            ssC.setData(subD.c);
+            ssM5.setData(subD.m5);
+            ssM25.setData(subD.m25);
+            ssM75.setData(subD.m75);
+            subChart.timeScale().fitContent();
+
+            // Main Chart Functions
             function updateNextOpenDisplay() {{
                 if (idx >= d.tgt.c.length) {{
                     sNextOpen.setData([]);
