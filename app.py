@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 PREDICT_DAYS_DAILY = 20
 PREDICT_BARS_5M = 100
 
-st.set_page_config(page_title="株トレードゲーム", layout="wide")
+st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 ===
 MESSAGES = {
@@ -239,7 +239,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             <div class="chart-wrapper">
                 <div id="chart-area" style="width:100%; height:100%;"></div>
                 <div id="price-label" class="price-label-box">
-                    <div class="price-label-title">次の始値</div>
+                    <div class="price-label-title">NEXT OPEN</div>
                     <div id="price-val" class="price-label-val">----</div>
                 </div>
                 <div id="ov-anim" class="overlay-anim"></div>
@@ -276,9 +276,9 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                 crosshair: {{ vertLine: {{ color: '#555', labelBackgroundColor: '#555' }}, horzLine: {{ color: '#555', labelBackgroundColor: '#555' }} }}
             }});
 
-            const sM75 = chart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
-            const sM25 = chart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
-            const sM5  = chart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
+            const sM75 = chart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
+            const sM25 = chart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
+            const sM5  = chart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
             
             const sC = chart.addCandlestickSeries({{ 
                 upColor: '#10b981', downColor: '#f43f5e', 
@@ -344,8 +344,78 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                 }} catch(e){{}}
             }}
 
-            function playTurn(act) {{
+            async function animateCandle(c) {{
+                const sleep = ms => new Promise(r => setTimeout(r, ms));
+                const steps = 8; 
+                const wait = 15;
+                const isYang = c.close >= c.open;
+                
+                const upd = (o, h, l, cl) => sC.update({{ time: c.time, open: o, high: h, low: l, close: cl }});
+
+                if (isYang) {{
+                    // O -> L
+                    for(let i=1; i<=steps; i++) {{
+                        const p = c.open + (c.low - c.open) * (i/steps);
+                        upd(c.open, c.open, p, p);
+                        await sleep(wait);
+                    }}
+                    // L -> H
+                    for(let i=1; i<=steps; i++) {{
+                        const p = c.low + (c.high - c.low) * (i/steps);
+                        // p is current price. H is max(open, p), L is low
+                        let curH = Math.max(c.open, p);
+                        upd(c.open, curH, c.low, p);
+                        await sleep(wait);
+                    }}
+                    // H -> C
+                    for(let i=1; i<=steps; i++) {{
+                        const p = c.high + (c.close - c.high) * (i/steps);
+                        upd(c.open, c.high, c.low, p);
+                        await sleep(wait);
+                    }}
+                }} else {{
+                    // O -> H
+                    for(let i=1; i<=steps; i++) {{
+                        const p = c.open + (c.high - c.open) * (i/steps);
+                        upd(c.open, p, c.open, p);
+                        await sleep(wait);
+                    }}
+                    // H -> L
+                    for(let i=1; i<=steps; i++) {{
+                        const p = c.high + (c.low - c.high) * (i/steps);
+                        // p is current price. L is min(open, p)
+                        let curL = Math.min(c.open, p);
+                        upd(c.open, c.high, curL, p);
+                        await sleep(wait);
+                    }}
+                    // L -> C
+                    for(let i=1; i<=steps; i++) {{
+                        const p = c.low + (c.close - c.low) * (i/steps);
+                        upd(c.open, c.high, c.low, p);
+                        await sleep(wait);
+                    }}
+                }}
+            }}
+
+            function setBtns(disabled) {{
+                document.getElementById('btn-up').disabled = disabled;
+                document.getElementById('btn-skip').disabled = disabled;
+                document.getElementById('btn-down').disabled = disabled;
+                if(disabled) {{
+                    document.getElementById('btn-up').style.opacity = 0.5;
+                    document.getElementById('btn-skip').style.opacity = 0.5;
+                    document.getElementById('btn-down').style.opacity = 0.5;
+                }} else {{
+                    document.getElementById('btn-up').style.opacity = 1;
+                    document.getElementById('btn-skip').style.opacity = 1;
+                    document.getElementById('btn-down').style.opacity = 1;
+                }}
+            }}
+
+            async function playTurn(act) {{
                 if(idx>=d.tgt.c.length) return;
+                setBtns(true);
+
                 const next=d.tgt.c[idx];
                 const isUp=next.close>=next.open;
                 let txt='SKIP', col='#9ca3af', snd='s';
@@ -364,14 +434,19 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                     setTimeout(()=>{{ ov.style.transition='all 1s ease-out'; ov.style.opacity=0; ov.style.transform='translate(-50%,-50%) scale(0.8)'; }}, 50);
                 }});
 
+                await animateCandle(next);
+
                 document.getElementById('w-val').innerText=w;
                 document.getElementById('l-val').innerText=l;
                 document.getElementById('r-val').innerText=d.tgt.c.length-(idx+1);
 
                 idx++;
                 render(idx);
+                
                 const totalVisible = d.ctx.c.length + idx;
                 chart.timeScale().setVisibleLogicalRange({{ from: totalVisible - 50, to: totalVisible + 5 }});
+                
+                setBtns(false);
 
                 if(idx>=d.tgt.c.length) {{
                     setTimeout(()=>{{
