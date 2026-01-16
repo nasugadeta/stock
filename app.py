@@ -596,14 +596,7 @@ else:
 
 st.markdown("---")
 
-# ルール説明
-col_rule1, col_rule2, col_rule3 = st.columns(3)
-with col_rule1: st.success("📈 **BUY**: 上昇予測")
-with col_rule2: 
-    st.markdown("""
-    <div style="background:rgba(150,150,150,0.15); border:1px solid rgba(150,150,150,0.3); padding:16px; border-radius:8px;">
-    👀 <strong>SKIP</strong>: 様子見</div>""", unsafe_allow_html=True)
-with col_rule3: st.error("📉 **SELL**: 下落予測")
+
 
 # 常に実行
 with st.spinner("データを準備中..."):
