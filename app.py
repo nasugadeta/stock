@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 PREDICT_DAYS_DAILY = 20
 PREDICT_BARS_5M = 20
 
-st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
+st.set_page_config(page_title="株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 ===
 MESSAGES = {
@@ -272,7 +272,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             <div class="chart-wrapper">
                 <div id="chart-area" style="width:100%; height:100%;"></div>
                 <div id="price-label" class="price-label-box">
-                    <div class="price-label-title">NEXT OPEN</div>
+                    <div class="price-label-title">次の始値</div>
                     <div id="price-val" class="price-label-val">----</div>
                 </div>
                 <div id="ov-anim" class="overlay-anim"></div>
@@ -596,8 +596,6 @@ else:
 
 st.markdown("---")
 
-start_btn = st.button("ゲームスタート / リセット", type="primary", use_container_width=True)
-
 # ルール説明
 col_rule1, col_rule2, col_rule3 = st.columns(3)
 with col_rule1: st.success("📈 **BUY**: 上昇予測")
@@ -607,24 +605,22 @@ with col_rule2:
     👀 <strong>SKIP</strong>: 様子見</div>""", unsafe_allow_html=True)
 with col_rule3: st.error("📉 **SELL**: 下落予測")
 
-if start_btn or 'game_active' in st.session_state:
-    st.session_state['game_active'] = True
+# 常に実行
+with st.spinner("データを準備中..."):
+    # 日足なら10年、5分足なら60日
+    period = "10y" if game_mode == 'daily' else "60d"
+    interval = "1d" if game_mode == 'daily' else "5m"
     
-    with st.spinner("データを準備中..."):
-        # 日足なら10年、5分足なら60日
-        period = "10y" if game_mode == 'daily' else "60d"
-        interval = "1d" if game_mode == 'daily' else "5m"
+    raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
+    
+    if error_msg:
+        st.error(error_msg)
+    else:
+        game_data, proc_err = process_data(raw_df, game_mode, selected_date_opt)
         
-        raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
-        
-        if error_msg:
-            st.error(error_msg)
+        if proc_err:
+            st.error(proc_err)
         else:
-            game_data, proc_err = process_data(raw_df, game_mode, selected_date_opt)
-            
-            if proc_err:
-                st.error(proc_err)
-            else:
-                comp_name = get_japanese_name(ticker_input)
-                game_html = render_game_html(game_data, comp_name, ticker_input, game_mode)
-                st.components.v1.html(game_html, height=680, scrolling=False)
+            comp_name = get_japanese_name(ticker_input)
+            game_html = render_game_html(game_data, comp_name, ticker_input, game_mode)
+            st.components.v1.html(game_html, height=680, scrolling=False)
