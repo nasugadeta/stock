@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 # === 設定 ===
 PREDICT_DAYS_DAILY = 20
-PREDICT_BARS_5M = 100
+PREDICT_BARS_5M = 20
 
 st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
@@ -91,6 +91,9 @@ def process_data(df, mode, selected_date_str=None):
         target_mask = df.index.strftime('%Y-%m-%d') == selected_date_str
         tgt_df = df.loc[target_mask]
         if tgt_df.empty: return None, "選択日のデータなし"
+        
+        # ゲーム長を制限 (例: 20本)
+        tgt_df = tgt_df.iloc[:PREDICT_BARS_5M]
         
         cutoff_time = tgt_df.index[0]
         ctx_df = df[df.index < cutoff_time].tail(200)
