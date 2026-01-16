@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 PREDICT_DAYS_DAILY = 20
 PREDICT_BARS_5M = 20
 
-st.set_page_config(page_title="株トレードゲーム", layout="wide")
+st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 ===
 MESSAGES = {
@@ -92,8 +92,8 @@ def process_data(df, mode, selected_date_str=None):
         tgt_df = df.loc[target_mask]
         if tgt_df.empty: return None, "選択日のデータなし"
         
-        # ゲーム長を制限 (例: 20本)
-        tgt_df = tgt_df.iloc[:PREDICT_BARS_5M]
+        # JS側でページングするため、ここでは全データを返す（リミットはJSで管理）
+        # tgt_df = tgt_df.iloc[:PREDICT_BARS_5M]
         
         cutoff_time = tgt_df.index[0]
         ctx_df = df[df.index < cutoff_time].tail(200)
@@ -242,7 +242,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             <div class="chart-wrapper">
                 <div id="chart-area" style="width:100%; height:100%;"></div>
                 <div id="price-label" class="price-label-box">
-                    <div class="price-label-title">次の始値</div>
+                    <div class="price-label-title">NEXT OPEN</div>
                     <div id="price-val" class="price-label-val">----</div>
                 </div>
                 <div id="ov-anim" class="overlay-anim"></div>
@@ -259,7 +259,11 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                     <div style="font-size:18px; font-weight:800; color:#a1a1aa; margin-bottom:10px;">ACCURACY RATE</div>
                     <div id="score-val" class="result-score"></div>
                     <div id="msg-val" class="result-msg"></div> 
-                    <button onclick="document.getElementById('res-modal').style.display='none'" class="modal-btn">閉じる</button>
+                    <div style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
+                        <button id="btn-retry" class="modal-btn" style="background:#555;">もう一度</button>
+                        <button id="btn-next" class="modal-btn">次へ</button>
+                        <button onclick="document.getElementById('res-modal').style.display='none'" class="modal-btn" style="background:transparent; border:1px solid #555;">閉じる</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -268,7 +272,11 @@ def render_game_html(data, ticker_name, ticker_code, mode):
         (function(){{
             const d = {json_data};
             const MSGS = {json_msgs};
-            let idx = 0; let w = 0, l = 0;
+            const ROUND_LEN = 20;
+
+            let startIdx = 0; // 現在のラウンドの開始インデックス
+            let idx = 0;      // 現在のグローバルインデックス
+            let w = 0, l = 0;
             let ac = null; let priceLine = null;
 
             const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {{
@@ -325,13 +333,23 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                 updateNextOpenDisplay();
             }}
 
-            render(0);
-            if (d.ctx.c.length > 50) {{
-                const totalBars = d.ctx.c.length;
-                chart.timeScale().setVisibleLogicalRange({{ from: totalBars - 50, to: totalBars + 5 }});
-            }} else {{
-                chart.timeScale().fitContent();
+            function initGame(baseIdx) {{
+                startIdx = baseIdx;
+                idx = startIdx;
+                w = 0; l = 0;
+                
+                document.getElementById('w-val').innerText = '0';
+                document.getElementById('l-val').innerText = '0';
+                document.getElementById('r-val').innerText = ROUND_LEN;
+                document.getElementById('res-modal').style.display = 'none';
+
+                render(idx);
+                // 範囲調整
+                const totalVisible = d.ctx.c.length + idx;
+                chart.timeScale().setVisibleLogicalRange({{ from: totalVisible - 50, to: totalVisible + 5 }});
             }}
+
+            initGame(0);
 
             function beep(t) {{
                 try {{
@@ -416,7 +434,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             }}
 
             async function playTurn(act) {{
-                if(idx>=d.tgt.c.length) return;
+                if(idx >= d.tgt.c.length) return;
                 setBtns(true);
 
                 const next=d.tgt.c[idx];
@@ -441,17 +459,21 @@ def render_game_html(data, ticker_name, ticker_code, mode):
 
                 document.getElementById('w-val').innerText=w;
                 document.getElementById('l-val').innerText=l;
-                document.getElementById('r-val').innerText=d.tgt.c.length-(idx+1);
-
+                
                 idx++;
                 render(idx);
                 
+                // 残り回数計算: 現在のラウンド終了まで何回か
+                const playedInRound = idx - startIdx;
+                document.getElementById('r-val').innerText = ROUND_LEN - playedInRound;
+
                 const totalVisible = d.ctx.c.length + idx;
                 chart.timeScale().setVisibleLogicalRange({{ from: totalVisible - 50, to: totalVisible + 5 }});
                 
                 setBtns(false);
 
-                if(idx>=d.tgt.c.length) {{
+                // ラウンド終了判定
+                if(playedInRound >= ROUND_LEN || idx >= d.tgt.c.length) {{
                     setTimeout(()=>{{
                         const total = w + l;
                         const rate = total ? Math.round(w / total * 100) : 0;
@@ -459,6 +481,11 @@ def render_game_html(data, ticker_name, ticker_code, mode):
                         document.getElementById('msg-val').innerText = MSGS[rate >= 80 ? 'god' : rate >= 60 ? 'pro' : rate >= 40 ? 'normal' : rate >= 20 ? 'bad' : 'disaster'][0];
                         sEl.innerText = rate + '%';
                         sEl.style.color = rate >= 50 ? '#34d399' : '#f87171';
+                        
+                        // ボタン制御
+                        const hasNext = (idx < d.tgt.c.length);
+                        document.getElementById('btn-next').style.display = hasNext ? 'inline-block' : 'none';
+                        
                         document.getElementById('res-modal').style.display='flex';
                     }}, 1000);
                 }}
@@ -467,6 +494,9 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             document.getElementById('btn-up').onclick = () => playTurn('up');
             document.getElementById('btn-skip').onclick = () => playTurn('skip');
             document.getElementById('btn-down').onclick = () => playTurn('down');
+
+            document.getElementById('btn-retry').onclick = () => initGame(startIdx);
+            document.getElementById('btn-next').onclick = () => initGame(idx); // 現在のidxから開始
         }})();
         </script>
     </body>
