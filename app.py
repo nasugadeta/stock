@@ -412,6 +412,13 @@ c1, c2, c3 = st.columns([1.5, 1.5, 1])
 with c1:
     ticker_input = st.text_input("証券コード", "7203.T", placeholder="例: 7203.T")
     
+    # 全角数字を半角に変換
+    ticker_input = ticker_input.translate(str.maketrans({chr(0xFF10 + i): chr(0x30 + i) for i in range(10)}))
+    ticker_input = ticker_input.strip()
+    # 4桁以下の数字だけなら.Tを付与
+    if re.match(r'^\d{4}$', ticker_input):
+        ticker_input = f"{ticker_input}.T"
+    
 with c2:
     mode = st.radio("モード", ["日足", "5分足"], horizontal=True, label_visibility="collapsed")
     # ラジオボタンのラベルを消したので自前で表示などを工夫してもいいが、
