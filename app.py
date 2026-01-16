@@ -588,35 +588,26 @@ st.markdown("""
 st.title("💹 株トレードゲーム")
 
 # メインエリアの上部に操作系を配置
-c1, c2, c3, c4 = st.columns([1.5, 1.2, 1.2, 1.2])
+c1, c2, c3 = st.columns([1.5, 1.2, 1.2]) # c3(SubChart)は不要になったので削除、日付をc3へ
 
 with c1:
     ticker_input = st.text_input("証券コード", "7203.T", placeholder="例: 7203.T")
-    
-    # 全角数字を半角に変換
     ticker_input = ticker_input.translate(str.maketrans({chr(0xFF10 + i): chr(0x30 + i) for i in range(10)}))
     ticker_input = ticker_input.strip()
-    # 4桁以下の数字だけなら.Tを付与
     if re.match(r'^\d{4}$', ticker_input):
         ticker_input = f"{ticker_input}.T"
     
 with c2:
     mode = st.radio("モード", ["日足", "5分足"], horizontal=True, label_visibility="collapsed")
 
-# サブチャート選択
+# サブチャート用設定（選択肢定義のみ）
 sub_mode_map = {}
 if "5分" in mode:
     game_mode = '5m'
-    sub_opts = ["日足", "週足"]
     sub_mode_map = {"日足": "1d", "週足": "1wk"}
 else:
     game_mode = 'daily'
-    sub_opts = ["週足", "月足"]
     sub_mode_map = {"週足": "1wk", "月足": "1mo"}
-
-with c3:
-    sub_mode_label = st.selectbox("サブチャート", sub_opts)
-    sub_interval = sub_mode_map[sub_mode_label]
 
 # 日付選択（5分足 or 日足）
 selected_date_opt = None
@@ -625,7 +616,7 @@ if game_mode == '5m':
         df_check, err = fetch_raw_data(ticker_input, "60d", "5m")
         if df_check is not None and not df_check.empty:
             dates = sorted(list(set(df_check.index.strftime('%Y-%m-%d'))), reverse=True)
-            with c4:
+            with c3:
                 selected_date_opt = st.selectbox("日付", dates)
         elif err:
             st.error(err)
@@ -638,7 +629,7 @@ else:
             max_date = df_check.index[-PREDICT_DAYS_DAILY].date()
             default_date = max_date
             
-            with c4:
+            with c3:
                 val = st.date_input("開始日", value=default_date, min_value=min_date, max_value=max_date)
                 selected_date_opt = val.strftime('%Y-%m-%d')
         elif err:
@@ -654,86 +645,59 @@ with st.spinner("データを準備中..."):
     
     raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
     
-    # サブチャート用データ
-    sub_period = "10y" # 長めに
-    sub_df, sub_err = fetch_raw_data(ticker_input, sub_period, sub_interval)
+    # サブチャート用データ（全候補取得）
+    sub_datasets = {}
+    sub_errors = []
+    
+    for label, sub_int in sub_mode_map.items():
+        sub_period = "10y"
+        s_df, s_err = fetch_raw_data(ticker_input, sub_period, sub_int)
+        if s_err:
+            sub_errors.append(f"{label}: {s_err}")
+            continue
+            
+        # MA計算
+        s_df['MA5'] = s_df['Close'].rolling(5).mean()
+        s_df['MA25'] = s_df['Close'].rolling(25).mean()
+        s_df['MA75'] = s_df['Close'].rolling(75).mean()
+        s_df = s_df.dropna()
+        sub_datasets[label] = s_df
 
     if error_msg:
         st.error(error_msg)
-    elif sub_err:
-        st.error(f"サブチャート取得エラー: {sub_err}")
+    elif sub_errors:
+        st.error("サブチャート取得エラー: " + ", ".join(sub_errors))
     else:
         game_data, proc_err = process_data(raw_df, game_mode, selected_date_opt)
         
         if proc_err:
             st.error(proc_err)
         else:
-            # サブチャートの足切り（ゲーム開始日時より前）
-            if game_data['tgt']['c']:
-                # ゲームデータの最初の時刻を取得
-                # dailyの場合文字列'YYYY-MM-DD'、5mの場合UnixTimestamp(UTC化されたJST)
-                start_time_val = game_data['tgt']['c'][0]['time']
-                
-                cutoff_ts = None
-                if game_mode == 'daily':
-                     cutoff_ts = pd.Timestamp(start_time_val)
-                else:
-                    # 5分足の場合、start_time_valはUnixTimestamp
-                    # これをJSTのTimestampに戻す必要があるが、
-                    # process_data内でJST時刻をそのままUTC Timestampにしてるので
-                    # そのまま isocalendar とか比較はできない
-                    # 単純に sub_df の範囲を切るために、raw_df の target index[0] を使うのが確実
-                    pass
-
-            # process_dataから戻り値には raw_df の情報は含まれてないので、
-            # game_data作成時のロジックを再考するか、ここで index 比較をする
-            # ここではシンプルに raw_df から特定する
-            # tgt_df の先頭日時が必要
-            
-            # 再度ロジックをなぞるのは非効率だが、process_dataがmaskされたdfを返してないので
-            # process_data の戻り値に cutoff information を含める修正をするのが綺麗だが
-            # 手っ取り早くやるため、game_data内の先頭timeを利用する
-            
-            # Subデータ整形
-            def make_sub_entry(t_idx, r):
-                # サブチャートは常に日付表示でよい(週足/月足/日足)
-                # ただし5分足モード時のサブ(日足)は日付だけ
-                t_val = t_idx.strftime('%Y-%m-%d')
-                return {
-                    "time": t_val,
-                    "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close'],
-                    "ma5": r['MA5'], "ma25": r['MA25'], "ma75": r['MA75']
-                }
-
-            # MA計算
-            sub_df['MA5'] = sub_df['Close'].rolling(5).mean()
-            sub_df['MA25'] = sub_df['Close'].rolling(25).mean()
-            sub_df['MA75'] = sub_df['Close'].rolling(75).mean()
-            sub_df = sub_df.dropna()
-            
-            # カットオフ: ゲーム開始時点より前のデータのみにする
-            # game_data['tgt']['c'][0]['time'] が開始点
-            # 比較のため、Timestamp化
+            # カットオフ設定
             cutoff_dt = None
-            if game_mode == 'daily':
-                cutoff_dt = pd.Timestamp(game_data['tgt']['c'][0]['time'])
-            else:
-                # 5mの場合、UnixTime(JST-as-UTC)が入っている
-                # JST 9:00 -> UTC 0:00 (UnixTime)のように変換されている
-                # 逆算する: Ts -> UTC datetime
-                ts = game_data['tgt']['c'][0]['time']
-                dt_utc = datetime.fromtimestamp(ts, timezone.utc)
-                # これがそのままJSTの日時として扱える(Naive)
-                cutoff_dt = dt_utc.replace(tzinfo=None)
+            if game_data['tgt']['c']:
+                if game_mode == 'daily':
+                     cutoff_dt = pd.Timestamp(game_data['tgt']['c'][0]['time'])
+                else:
+                    ts = game_data['tgt']['c'][0]['time']
+                    dt_utc = datetime.fromtimestamp(ts, timezone.utc)
+                    cutoff_dt = dt_utc.replace(tzinfo=None)
 
-            sub_df_cut = sub_df[sub_df.index < cutoff_dt]
-            
-            sub_chart_data = {"c": [], "m5": [], "m25": [], "m75": []}
-            for t, r in sub_df_cut.iterrows():
-                e = make_sub_entry(t, r)
-                sub_chart_data["c"].append({"time": e["time"], "open": e["open"], "high": e["high"], "low": e["low"], "close": e["close"]})
-                for m in ['m5', 'm25', 'm75']: sub_chart_data[m].append({"time": e["time"], "value": e["ma"+m[1:]]})
+            # 各サブチャートを整形して格納
+            final_sub_map = {}
+            for label, s_df in sub_datasets.items():
+                # Cutoff
+                s_df_cut = s_df[s_df.index < cutoff_dt] if cutoff_dt else s_df
+                
+                chart_d = {"c": [], "m5": [], "m25": [], "m75": []}
+                for t, r in s_df_cut.iterrows():
+                    # 週足・月足・日足すべて日付文字列でOK
+                    t_val = t.strftime('%Y-%m-%d')
+                    chart_d["c"].append({"time": t_val, "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close']})
+                    for m in ['m5', 'm25', 'm75']: chart_d[m].append({"time": t_val, "value": r['MA'+m.upper()[2:]]})
+                final_sub_map[label] = chart_d
 
             comp_name = get_japanese_name(ticker_input)
-            game_html = render_game_html(game_data, sub_chart_data, comp_name, ticker_input, game_mode, sub_mode_label)
+            # sub_mode_mapのキーを渡して、JS側で並び順などを制御できるようにする
+            game_html = render_game_html(game_data, final_sub_map, comp_name, ticker_input, game_mode, list(sub_mode_map.keys()))
             st.components.v1.html(game_html, height=850, scrolling=False)
