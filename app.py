@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 PREDICT_DAYS_DAILY = 20
 PREDICT_BARS_5M = 100
 
-st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
+st.set_page_config(page_title="株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 ===
 MESSAGES = {
@@ -239,7 +239,7 @@ def render_game_html(data, ticker_name, ticker_code, mode):
             <div class="chart-wrapper">
                 <div id="chart-area" style="width:100%; height:100%;"></div>
                 <div id="price-label" class="price-label-box">
-                    <div class="price-label-title">NEXT OPEN</div>
+                    <div class="price-label-title">次の始値</div>
                     <div id="price-val" class="price-label-val">----</div>
                 </div>
                 <div id="ov-anim" class="overlay-anim"></div>
