@@ -83,8 +83,38 @@ def process_data(df, mode, selected_date_str=None):
 
     if mode == 'daily':
         if len(df) < PREDICT_DAYS_DAILY + 50: return None, "データ不足"
-        ctx_df = df.iloc[:-PREDICT_DAYS_DAILY]
-        tgt_df = df.iloc[-PREDICT_DAYS_DAILY:]
+        
+        target_idx = -PREDICT_DAYS_DAILY # Default to latest
+        
+        if selected_date_str:
+            # 日付文字列から該当するIndexを探す (日付以前の直近の日)
+            try:
+                # 指定日以降のデータで一番古いものの位置を探すのが正確だが、
+                # indexは昇順なので、指定日以上(>=)の最初の要素
+                sel_ts = pd.Timestamp(selected_date_str).replace(tzinfo=None)
+                after_mask = df.index >= sel_ts
+                if after_mask.any():
+                    # その日の位置を取得
+                    # しかし、dfは全体なので、targetの開始位置はそこになる
+                    # つまり tgt_df = df.iloc[start_pos : start_pos+20]
+                    start_pos = list(after_mask).index(True)
+                    
+                    # 十分なcontextがあるか確認
+                    if start_pos < 50:
+                        return None, "開始日が古すぎます（過去データ不足）"
+                    if start_pos + PREDICT_DAYS_DAILY > len(df):
+                        # 未来すぎる場合は末尾に合わせる
+                        start_pos = len(df) - PREDICT_DAYS_DAILY
+                    
+                    ctx_df = df.iloc[:start_pos].tail(200) # 直近200本
+                    tgt_df = df.iloc[start_pos:] # JS側でページングするので残りは全部渡す
+                else:
+                    return None, "指定日のデータがありません"
+            except Exception as e:
+                return None, f"日付処理エラー: {e}"
+        else:
+            ctx_df = df.iloc[:-PREDICT_DAYS_DAILY]
+            tgt_df = df.iloc[-PREDICT_DAYS_DAILY:]
 
     elif mode == '5m':
         if not selected_date_str: return None, "日付未選択"
@@ -548,9 +578,21 @@ if "5分" in mode:
         elif err:
             st.error(err)
 else:
-    # 日足モードの場合、c3は空または別の情報
-    with c3:
-        st.write("") # Spacer
+    # 日足モードの場合
+    with st.spinner("データ確認中..."):
+        # 過去10年分取得して範囲を決める
+        df_check, err = fetch_raw_data(ticker_input, "10y", "1d")
+        if df_check is not None and not df_check.empty and len(df_check) > 70:
+            # 最低50本(context) + 20本(game)確保
+            min_date = df_check.index[50].date()
+            max_date = df_check.index[-PREDICT_DAYS_DAILY].date()
+            default_date = max_date
+            
+            with c3:
+                val = st.date_input("開始日", value=default_date, min_value=min_date, max_value=max_date)
+                selected_date_opt = val.strftime('%Y-%m-%d')
+        elif err:
+            st.error(err)
 
 st.markdown("---")
 
@@ -569,7 +611,8 @@ if start_btn or 'game_active' in st.session_state:
     st.session_state['game_active'] = True
     
     with st.spinner("データを準備中..."):
-        period = "2y" if game_mode == 'daily' else "60d"
+        # 日足なら10年、5分足なら60日
+        period = "10y" if game_mode == 'daily' else "60d"
         interval = "1d" if game_mode == 'daily' else "5m"
         
         raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
