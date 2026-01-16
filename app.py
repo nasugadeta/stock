@@ -5,10 +5,13 @@ import json
 import random
 import string
 import re
-import requests  # 追加: 社名取得用
+import requests
+from datetime import timedelta
 
 # === 設定 ===
-PREDICT_DAYS = 20
+PREDICT_DAYS_DAILY = 20  # 日足モードでの予測期間
+PREDICT_BARS_5M = 100    # 5分足モードでのプレイ本数（必要に応じて調整）
+
 st.set_page_config(page_title="板読み株トレードゲーム", layout="wide")
 
 # === メッセージリスト定義 ===
@@ -58,28 +61,22 @@ MESSAGES = {
 def get_japanese_name(ticker):
     """
     Yahoo!ファイナンス(日本)からスクレイピングして日本語社名を取得する
-    yfinanceのinfoが不安定なため、こちらのほうが確実です。
     """
-    # コードから.Tを除去（URL作成用）
     code_only = ticker.replace('.T', '')
     url = f"https://finance.yahoo.co.jp/quote/{code_only}.T"
     
     try:
-        # ブラウザのふりをしてアクセス
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         res = requests.get(url, headers=headers, timeout=3)
         res.encoding = res.apparent_encoding
         
         if res.status_code == 200:
-            # HTMLの <title>トヨタ自動車(株)【7203】... から社名を抽出
-            # 正規表現で【の前までを取得
             match = re.search(r'<title>(.*?)【', res.text)
             if match:
                 return match.group(1).strip()
     except:
         pass
 
-    # 取得失敗時はyfinanceを試す（英語名になる可能性が高い）
     try:
         t = yf.Ticker(ticker)
         return t.info.get('longName', ticker)
@@ -87,69 +84,154 @@ def get_japanese_name(ticker):
         return ticker
 
 @st.cache_data(ttl=3600)
-def get_stock_data(code_str):
-    """データ取得ロジック"""
-    code_str = str(code_str).strip().upper()
-    if re.match(r'^\d{4}$', code_str):
-        ticker = f"{code_str}.T"
-    else:
-        ticker = code_str
-
+def fetch_raw_data(ticker, period, interval):
+    """yfinanceから生データを取得してキャッシュする"""
     try:
-        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
+        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=False)
     except Exception as e:
         return None, f"ダウンロードエラー: {e}"
 
-    if df.empty: return None, "データが見つかりません。コードを確認してください。"
+    if df.empty:
+        return None, "データが見つかりません。コードを確認してください。"
     
+    # マルチインデックス対応（yfinance v0.2+ / v1.0+）
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    if 'Close' not in df.columns: return None, "株価データ(Close)がありません。"
+        # Tickerレベルがあれば削除してClose, Open...だけにする
+        try:
+            df.columns = df.columns.get_level_values(0)
+        except:
+            pass
+            
+    # 最低限のカラムチェック
+    required = ['Open', 'High', 'Low', 'Close', 'Volume']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        return None, f"必要なカラム({missing})が不足しています。"
 
+    # インデックスをDatetime型に
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    # タイムゾーン処理：日本時間に変換してTZ情報を削除（扱いやすくするため）
+    # yfinanceは通常UTC等のTZ付きで返すが、日本の株なら基本はJST
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert('Asia/Tokyo').tz_localize(None)
+
+    return df, None
+
+def process_data(df, mode, selected_date_str=None):
+    """
+    取得したデータをゲーム用に加工する
+    mode: 'daily' or '5m'
+    selected_date_str: 'YYYY-MM-DD' (5mモード用)
+    """
     # テクニカル指標計算
     df['MA5'] = df['Close'].rolling(5).mean()
     df['MA25'] = df['Close'].rolling(25).mean()
     df['MA75'] = df['Close'].rolling(75).mean()
+    # NaN除去（MA計算分）
     df = df.dropna()
 
-    if len(df) < PREDICT_DAYS + 50: return None, "データ不足です（表示用に最低50日分必要です）。"
+    ctx_df = pd.DataFrame()
+    tgt_df = pd.DataFrame()
 
-    df.index = pd.to_datetime(df.index)
-    df['date_str'] = df.index.strftime('%Y-%m-%d')
+    if mode == 'daily':
+        if len(df) < PREDICT_DAYS_DAILY + 50:
+            return None, "データ不足です（表示用に最低50日分必要です）。"
+        
+        # 直近PREDICT_DAYS_DAILY分をターゲット、それ以前をコンテキスト
+        ctx_df = df.iloc[:-PREDICT_DAYS_DAILY]
+        tgt_df = df.iloc[-PREDICT_DAYS_DAILY:]
 
-    ctx = df.iloc[:-PREDICT_DAYS]
-    tgt = df.iloc[-PREDICT_DAYS:]
+    elif mode == '5m':
+        # 日付フィルタリング
+        if not selected_date_str:
+            return None, "日付が選択されていません。"
+        
+        # 選択された日付のデータを抽出
+        target_mask = df.index.strftime('%Y-%m-%d') == selected_date_str
+        tgt_df = df.loc[target_mask]
+        
+        if tgt_df.empty:
+            return None, f"選択された日付({selected_date_str})のデータがありません。"
 
-    # JSON化のためのデータ整形
-    def make_c(d):
-        return [{"time": r['date_str'], "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close']} for _, r in d.iterrows()]
-    def make_v(d):
-        return [{"time": r['date_str'], "value": r['Volume'], "color": 'rgba(200, 200, 200, 0.4)'} for _, r in d.iterrows()]
-    def make_l(d, col):
-        return [{"time": r['date_str'], "value": r[col]} for _, r in d.iterrows()]
+        # コンテキストデータ（選択日より前のデータ）
+        # 直近のつながりを重視して、過去N本（例えば200本）を取得
+        cutoff_time = tgt_df.index[0]
+        ctx_df = df[df.index < cutoff_time].tail(200) # チャート表示用に過去200本あれば十分
 
-    # 日本語社名を取得
-    name = get_japanese_name(ticker)
+        # もしコンテキストが空でもゲームは開始できるようにする（朝イチ想定）
     
-    data = {
-        "name": name, "code": ticker,
-        "ctx": {
-            "c": make_c(ctx), "v": make_v(ctx),
-            "m5": make_l(ctx, 'MA5'), "m25": make_l(ctx, 'MA25'), "m75": make_l(ctx, 'MA75')
-        },
-        "tgt": {
-            "c": make_c(tgt), "v": make_v(tgt),
-            "m5": make_l(tgt, 'MA5'), "m25": make_l(tgt, 'MA25'), "m75": make_l(tgt, 'MA75')
-        }
-    }
-    return data, None
+    # JSON化ブロック作成ヘルパー
+    def make_entry(t_idx, r, is_intraday):
+        # 軽量チャート用時刻フォーマット
+        # 日足: 'YYYY-MM-DD' 文字列
+        # 分足: Unix Timestamp (秒)
+        if is_intraday:
+            # タイムスタンプ(秒)
+            t_val = int(t_idx.timestamp()) + 32400 # JST補正(Lightweight ChartsはUTC想定で動く場合があるため、表示時間を合わせる工夫が必要だが、timestampならローカル時間設定依存)
+            # Lightweight ChartsはデフォルトでUTC扱いだが、useMasculine:trueなど設定がある。
+            # シンプルにTimestampを渡すとUTCとして扱われる。
+            # 今回はJSTのネイティブdatetimeに変換済→timestamp()はUTC基準の秒数を返す。
+            # これでチャート側がタイムゾーン設定を持てば合うはずだが、
+            # 簡易的に UTC+9時間の秒数を足して「UTCとして渡す」とチャート上でJST時間に見えるハックがよく使われる。
+            # ここではシンプルにそのまま渡して、チャート設定で対応するか、JST時間をUTCとして渡す（ハック）で行く。
+            # 日本株専用なら、JST時間をあたかもUTCかのようにtimestamp化するのが手っ取り早い。
+            t_val = int(t_idx.timestamp()) + 9*3600 
+        else:
+            t_val = t_idx.strftime('%Y-%m-%d')
 
-def render_game_html(data):
+        return {
+            "time": t_val,
+            "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close'],
+            "vol": r['Volume'],
+            "ma5": r['MA5'], "ma25": r['MA25'], "ma75": r['MA75']
+        }
+
+    is_intraday = (mode == '5m')
+
+    # コンテキストデータ変換
+    ctx_data = {
+        "c": [], "v": [], "m5": [], "m25": [], "m75": []
+    }
+    for t, r in ctx_df.iterrows():
+        e = make_entry(t, r, is_intraday)
+        ctx_data["c"].append({"time": e["time"], "open": e["open"], "high": e["high"], "low": e["low"], "close": e["close"]})
+        ctx_data["v"].append({"time": e["time"], "value": e["vol"], "color": 'rgba(200, 200, 200, 0.4)'})
+        ctx_data["m5"].append({"time": e["time"], "value": e["ma5"]})
+        ctx_data["m25"].append({"time": e["time"], "value": e["ma25"]})
+        ctx_data["m75"].append({"time": e["time"], "value": e["ma75"]})
+
+    # ターゲットデータ変換
+    tgt_data = {
+        "c": [], "v": [], "m5": [], "m25": [], "m75": []
+    }
+    for t, r in tgt_df.iterrows():
+        e = make_entry(t, r, is_intraday)
+        tgt_data["c"].append({"time": e["time"], "open": e["open"], "high": e["high"], "low": e["low"], "close": e["close"]})
+        tgt_data["v"].append({"time": e["time"], "value": e["vol"], "color": 'rgba(200, 200, 200, 0.4)'})
+        tgt_data["m5"].append({"time": e["time"], "value": e["ma5"]})
+        tgt_data["m25"].append({"time": e["time"], "value": e["ma25"]})
+        tgt_data["m75"].append({"time": e["time"], "value": e["ma75"]})
+
+    return {
+        "ctx": ctx_data,
+        "tgt": tgt_data
+    }, None
+
+
+def render_game_html(data, ticker_name, ticker_code, mode):
     uid = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
     json_data = json.dumps(data)
     json_msgs = json.dumps(MESSAGES)
     
+    # モードに応じて時間スケールの設定を変える
+    # 日足: timeVisible: true, secondsVisible: false
+    # 5分足: timeVisible: true, secondsVisible: false (分まで表示)
+    time_scale_opts = "{ timeVisible: true, secondsVisible: false }"
+    if mode == '5m':
+        time_scale_opts = "{ timeVisible: true, secondsVisible: false, tickMarkFormatter: (time, tickMarkType, locale) => { const d = new Date(time * 1000); return d.getUTCHours().toString().padStart(2,'0') + ':' + d.getUTCMinutes().toString().padStart(2,'0'); } }"
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -170,13 +252,16 @@ def render_game_html(data):
             .ticker-info {{ 
                 display: flex; flex-direction: column; 
             }}
-            /* 社名表示スタイル */
             .ticker-name {{ 
                 font-size: 24px; font-weight: 800; color: #ffffff; 
                 line-height: 1.2;
             }}
             .ticker-code {{ 
                 font-size: 14px; color: #9ca3af; font-family: monospace; font-weight: 400; margin-top: 4px; 
+            }}
+            .mode-badge {{
+                display: inline-block; background: #3b82f6; color: white; 
+                font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle;
             }}
             
             .stats-box {{ font-size: 14px; color: #9ca3af; display: flex; gap: 15px; align-items: center; }}
@@ -240,8 +325,11 @@ def render_game_html(data):
         <div id="game-wrap" class="game-container">
             <div class="header">
                 <div class="ticker-info">
-                    <span class="ticker-name">{data['name']}</span>
-                    <span class="ticker-code">{data['code']}</span>
+                    <div style="display:flex; align-items:center;">
+                        <span class="ticker-name">{ticker_name}</span>
+                        <span class="mode-badge">{mode.upper()}</span>
+                    </div>
+                    <span class="ticker-code">{ticker_code}</span>
                 </div>
                 <div class="stats-box">
                     <div>WIN: <span id="w-val" class="stat-val win-col">0</span></div>
@@ -290,7 +378,7 @@ def render_game_html(data):
             const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {{
                 layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
                 grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
-                timeScale: {{ borderColor: '#333', timeVisible: true }},
+                timeScale: {time_scale_opts},
                 rightPriceScale: {{ borderColor: '#333', scaleMargins: {{ top: 0.1, bottom: 0.2 }} }},
                 crosshair: {{ vertLine: {{ color: '#555', labelBackgroundColor: '#555' }}, horzLine: {{ color: '#555', labelBackgroundColor: '#555' }} }}
             }});
@@ -349,11 +437,14 @@ def render_game_html(data):
                     axisLabelVisible: false,
                 }});
                 
+                // 次の足の始値を黄色い十字線で表示
                 sNextOpen.setData([{{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }}]);
             }}
 
             function render(i) {{
-                sC.setData([...d.ctx.c, ...d.tgt.c.slice(0, i)]);
+                // コンテキストデータ＋ターゲットのi番目までを表示
+                const cData = [...d.ctx.c, ...d.tgt.c.slice(0, i)];
+                sC.setData(cData);
                 sV.setData([...d.ctx.v, ...d.tgt.v.slice(0, i)]);
                 sM5.setData([...d.ctx.m5, ...d.tgt.m5.slice(0, i)]);
                 sM25.setData([...d.ctx.m25, ...d.tgt.m25.slice(0, i)]);
@@ -361,9 +452,16 @@ def render_game_html(data):
                 updateNextOpenDisplay();
             }}
 
+            // 初期描画
             render(0);
-            const totalBars = d.ctx.c.length;
-            chart.timeScale().setVisibleLogicalRange({{ from: totalBars - 50, to: totalBars }});
+            
+            // 表示範囲の調整（コンテキストの最後50本〜現在地までなどを表示）
+            if (d.ctx.c.length > 50) {{
+                const totalBars = d.ctx.c.length;
+                chart.timeScale().setVisibleLogicalRange({{ from: totalBars - 50, to: totalBars + 5 }});
+            }} else {{
+                chart.timeScale().fitContent();
+            }}
 
             function beep(t) {{
                 try {{
@@ -405,7 +503,12 @@ def render_game_html(data):
 
                 idx++;
                 render(idx);
-                chart.timeScale().scrollToPosition(0, true);
+                // 常に最新の足が見えるように右端へスクロール
+                // chart.timeScale().scrollToPosition(0, true);
+                
+                // より自然な追従：最新の足が右側に来るようにRangeをずらす
+                const totalVisible = d.ctx.c.length + idx;
+                chart.timeScale().setVisibleLogicalRange({{ from: totalVisible - 50, to: totalVisible + 5 }});
 
                 if(idx>=d.tgt.c.length) {{
                     setTimeout(()=>{{
@@ -441,72 +544,84 @@ def render_game_html(data):
     return html
 
 # === Streamlit UI ===
-# 全体の余白調整用CSS
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    /* スマホなどで崩れないようにカードの高さを揃える */
-    .stAlert { height: 100%; } 
+    .stAlert { height: 100%; }
+    .stSelectbox { margin-bottom: 0px; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("💹 株トレードゲーム")
-
-# 説明文
 st.markdown("実際の株価データを使った**「次の足が上がるか下がるか」**を予測するゲームです。")
 
-# ルール説明を横並びのカード風に配置
-# SKIPをグレーにするため、ここだけHTMLでデザイン調整しています
+# サイドバー設定
+with st.sidebar:
+    st.header("設定")
+    ticker_input = st.text_input("証券コード", "7203.T")
+    
+    mode = st.radio("モード選択", ["日足 (Daily)", "5分足 (5-minute)"], index=0)
+    
+    selected_date_opt = None
+    
+    # モードに応じたデータ取得（UI表示用）
+    if "5分" in mode:
+        game_mode = '5m'
+        st.info("5分足モード：過去60日分のデータから、プレイする日付を選択します。")
+        # まず日付リストを取得するためにデータをフェッチ（キャッシュされる）
+        with st.spinner("日付リストを取得中..."):
+            df_check, err = fetch_raw_data(ticker_input, "60d", "5m")
+            if df_check is not None and not df_check.empty:
+                # 日付リスト作成
+                dates = sorted(list(set(df_check.index.strftime('%Y-%m-%d'))), reverse=True)
+                selected_date_opt = st.selectbox("プレイする日付を選択", dates)
+            elif err:
+                st.error(err)
+    else:
+        game_mode = 'daily'
+        st.info("日足モード：過去2年分のデータを使用します。")
+
+# ルール説明
 col_rule1, col_rule2, col_rule3 = st.columns(3)
-
 with col_rule1:
-    st.success("**BUY**: 陽線（始値より終値が高い）と予測", icon="📈")
-
+    st.success("**BUY**: 陽線 (始 < 終)", icon="📉")
 with col_rule2:
-    # 標準機能にグレーがないため、HTMLで作成して色を指定
-    # 背景色はダークモード/ライトモードどちらでも馴染む薄いグレー(rgba)に設定
     st.markdown("""
-        <div style="
-            background-color: rgba(150, 150, 150, 0.15);
-            border: 1px solid rgba(150, 150, 150, 0.3);
-            padding: 16px;
-            border-radius: 8px;
-            color: inherit;
-            display: flex;
-            align-items: center;
-        ">
-            <span style="font-size: 1.25rem; margin-right: 12px; margin-top: -4px;">👀</span>
-            <div style="font-size: 1rem; line-height: 1.5;">
-                <strong>SKIP</strong>: 自信がない時は見送り
-            </div>
+        <div style="background-color: rgba(150, 150, 150, 0.15); border: 1px solid rgba(150, 150, 150, 0.3); padding: 16px; border-radius: 8px; color: inherit; display: flex; align-items: center;">
+            <span style="font-size: 1.25rem; margin-right: 12px;">👀</span>
+            <div style="font-size: 0.9rem;"><strong>SKIP</strong>: 自信がない時は見送り</div>
         </div>
     """, unsafe_allow_html=True)
-
 with col_rule3:
-    st.error("**SELL**: 陰線（始値より終値が低い）と予測", icon="📉")
+    st.error("**SELL**: 陰線 (始 > 終)", icon="📉")
 
-st.markdown("---")
+st.divider()
 
-# 入力フォームとボタンをスタイリッシュに配置
-input_col, btn_col = st.columns([1, 5])
+# メイン操作エリア
+c1, c2 = st.columns([2, 1])
+with c1:
+    st.write(f"**対象銘柄**: {ticker_input} / **モード**: {game_mode.upper()}")
+with c2:
+    start_btn = st.button("ゲームスタート / リセット", type="primary", use_container_width=True)
 
-with input_col:
-    # 検索窓の説明
-    code = st.text_input("証券コードを入力", "7203")
-
-with btn_col:
-    # 高さ調整用の空白を入れてボタン位置を合わせる
-    st.markdown('<div style="height: 29px;"></div>', unsafe_allow_html=True)
-    start_btn = st.button("ゲーム開始", type="primary", use_container_width=True)
-
-# ゲーム開始処理
-if start_btn:
-    with st.spinner(f'{code} のデータを取得中...'):
-        stock_data, error = get_stock_data(code)
+if start_btn or 'game_active' in st.session_state:
+    st.session_state['game_active'] = True
     
-    if error:
-        st.error(error)
-    else:
-        st.write("") 
-        game_html = render_game_html(stock_data)
-        st.components.v1.html(game_html, height=650, scrolling=False)
+    # データ取得＆加工
+    with st.spinner("ゲームデータを生成中..."):
+        period = "2y" if game_mode == 'daily' else "60d"
+        interval = "1d" if game_mode == 'daily' else "5m"
+        
+        raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
+        
+        if error_msg:
+            st.error(error_msg)
+        else:
+            game_data, proc_err = process_data(raw_df, game_mode, selected_date_opt)
+            
+            if proc_err:
+                st.error(proc_err)
+            else:
+                comp_name = get_japanese_name(ticker_input)
+                game_html = render_game_html(game_data, comp_name, ticker_input, game_mode)
+                st.components.v1.html(game_html, height=680, scrolling=False)
