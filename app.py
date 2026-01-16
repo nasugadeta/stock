@@ -674,12 +674,11 @@ with c1:
     
     ticker_input = "7203.T" # Default
     
-    # 4桁数字のみ -> コードとみなす
-    if re.match(r'^\d{4}$', search_input):
-        ticker_input = f"{search_input}.T"
-    elif re.match(r'^\d{4}\.T$', search_input):
+    # 4桁数字のみ -> コードとみなさずに検索する（プルダウンで確認させる）
+    # ただし "7203.T" のように .T まで入れた場合は直接指定とみなす
+    if re.match(r'^\d{4}\.T$', search_input):
         ticker_input = search_input
-    # それ以外（文字が含まれる） -> 検索
+    # それ以外（4桁数字、文字など） -> 全部検索にかける
     elif search_input:
         candidates = search_yahoo_jp(search_input)
         if candidates:
@@ -688,8 +687,14 @@ with c1:
             # "7203.T : トヨタ自動車" -> "7203.T"
             ticker_input = selected_cand.split(":")[0].strip()
         else:
-            st.warning("候補が見つかりませんでした。コードを入力してください。")
-            ticker_input = None # 処理中断用
+            # 候補が見つからない場合
+            # 4桁数字ならそのままコードとしてトライするフォールバック
+            if re.match(r'^\d{4}$', search_input):
+                 ticker_input = f"{search_input}.T"
+                 # 警告は出さず、そのまま進める（検索ではヒットしないが有効なコードの可能性）
+            else:
+                 st.warning("候補が見つかりませんでした。コードを正確に入力してください。")
+                 ticker_input = None # 処理中断用
 
 with c2:
     mode = st.radio("モード", ["日足", "5分足"], horizontal=True, label_visibility="collapsed")
