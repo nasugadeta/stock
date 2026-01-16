@@ -394,7 +394,15 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 ssM5.setData(sd.m5);
                 ssM25.setData(sd.m25);
                 ssM75.setData(sd.m75);
-                subChart.timeScale().fitContent();
+                
+                // Show last 100 bars
+                const total = sd.c.length;
+                if (total > 0) {{
+                     const fromIdx = Math.max(0, total - 100);
+                     subChart.timeScale().setVisibleLogicalRange({{ from: fromIdx, to: total + 4 }});
+                }} else {{
+                     subChart.timeScale().fitContent();
+                }}
             }}
             
             // 下部チャート切り替えイベント
