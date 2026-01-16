@@ -264,10 +264,26 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
             .sub-chart-controls {{
                 position: absolute; top: 10px; left: 10px; z-index: 200;
             }}
-            .sub-select {{
+            .sub-select {
                 background: rgba(40,40,40,0.9); color: #e5e7eb; border: 1px solid #555;
                 padding: 4px 8px; border-radius: 6px; font-size: 12px; outline: none; cursor: pointer;
-            }}
+            }
+            
+            @media (max-width: 600px) {
+                .game-container { padding: 10px; }
+                .header { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+                .stats-box { width: 100%; justify-content: space-between; font-size: 12px; }
+                .stat-val { font-size: 16px; }
+                
+                .chart-wrapper { height: 300px; margin-bottom: 10px; }
+                .sub-chart-wrapper { height: 150px; margin-top: 5px; }
+                
+                .btn-group { margin-top: 10px; gap: 8px; }
+                .game-btn { padding: 12px; font-size: 14px; }
+                
+                .price-label-val { font-size: 20px; }
+                .overlay-anim { font-size: 60px; }
+            }
         </style>
     </head>
     <body>
