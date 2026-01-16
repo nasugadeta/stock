@@ -620,20 +620,80 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# === 検索等のヘルパー関数 ===
+@st.cache_data(ttl=3600)
+def search_yahoo_jp(query):
+    # コードそのものなら検索不要だが、ここでは名前に対応
+    url = f"https://finance.yahoo.co.jp/search/?query={query}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.content, "html.parser")
+        
+        candidates = []
+        seen = set()
+        # リンクから銘柄コードを探す
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            # 例: https://finance.yahoo.co.jp/quote/7203.T
+            m = re.search(r'/quote/(\d{4}\.T)', href)
+            if m:
+                code = m.group(1)
+                name = a.get_text(strip=True)
+                # ゴミ除け: "掲示板", "チャート", "ニュース" などが含まれるリンクは詳細リンクとして除外したいが
+                # 検索結果には "7203.T : トヨタ自動車" のようなリンクが出るはず
+                # 簡易的に、名前にコードが含まれない or 明らかに短いものは除外など工夫
+                # Yahooの検索結果は構成が変わる可能性が高いので、ある程度ヒューリスティックに
+                
+                # 名前が短い、または特定の単語のみの場合はスキップ
+                if name in ["掲示板", "チャート", "時系列", "ニュース", "企業情報", "株主優待"]:
+                    continue
+                
+                # 重複排除
+                if code not in seen:
+                    candidates.append(f"{code} : {name}")
+                    seen.add(code)
+        
+        return candidates
+    except Exception as e:
+        return []
+
 st.title("💹 株トレードゲーム")
 
 # メインエリアの上部に操作系を配置
-c1, c2, c3 = st.columns([1.5, 1.2, 1.2]) # c3(SubChart)は不要になったので削除、日付をc3へ
+c1, c2, c3 = st.columns([1.5, 1.2, 1.2]) 
 
 with c1:
-    ticker_input = st.text_input("証券コード", "7203.T", placeholder="例: 7203.T")
-    ticker_input = ticker_input.translate(str.maketrans({chr(0xFF10 + i): chr(0x30 + i) for i in range(10)}))
-    ticker_input = ticker_input.strip()
-    if re.match(r'^\d{4}$', ticker_input):
-        ticker_input = f"{ticker_input}.T"
+    # 検索窓
+    search_input = st.text_input("銘柄検索 (コード or 名称)", "7203", placeholder="例: トヨタ or 7203")
     
+    # 入力値の正規化（全角→半角）
+    search_input = search_input.translate(str.maketrans({chr(0xFF10 + i): chr(0x30 + i) for i in range(10)}))
+    search_input = search_input.strip()
+    
+    ticker_input = "7203.T" # Default
+    
+    # 4桁数字のみ -> コードとみなす
+    if re.match(r'^\d{4}$', search_input):
+        ticker_input = f"{search_input}.T"
+    elif re.match(r'^\d{4}\.T$', search_input):
+        ticker_input = search_input
+    # それ以外（文字が含まれる） -> 検索
+    elif search_input:
+        candidates = search_yahoo_jp(search_input)
+        if candidates:
+            # 選択肢を表示（最初の要素をデフォルトに）
+            selected_cand = st.selectbox("候補を選択", candidates)
+            # "7203.T : トヨタ自動車" -> "7203.T"
+            ticker_input = selected_cand.split(":")[0].strip()
+        else:
+            st.warning("候補が見つかりませんでした。コードを入力してください。")
+            ticker_input = None # 処理中断用
+
 with c2:
     mode = st.radio("モード", ["日足", "5分足"], horizontal=True, label_visibility="collapsed")
+
 
 # サブチャート用設定（選択肢定義のみ）
 sub_mode_map = {}
