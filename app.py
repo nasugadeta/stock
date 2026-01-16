@@ -164,9 +164,9 @@ def process_data(df, mode, selected_date_str=None):
 
     return {"ctx": ctx_data, "tgt": tgt_data}, None
 
-def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_label):
+def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mode_keys):
     json_data = json.dumps(data)
-    json_sub = json.dumps(sub_data)
+    json_sub_map = json.dumps(sub_data_map)
     json_msgs = json.dumps(MESSAGES)
     
     # メインチャートの時間設定
@@ -180,6 +180,13 @@ def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_la
                 return d.getUTCHours().toString().padStart(2,'0') + ':' + d.getUTCMinutes().toString().padStart(2,'0');
             }
         }"""
+
+    # サブチャート切り替え用オプションHTML
+    # sub_mode_keys = ["日足", "週足"] or ["週足", "月足"]
+    # 初期選択は keys[0] とする
+    options_html = ""
+    for k in sub_mode_keys:
+        options_html += f'<option value="{k}">{k}</option>'
 
     html = f"""
     <!DOCTYPE html>
@@ -254,9 +261,12 @@ def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_la
             .result-msg {{ font-size: 16px; color: #d1d5db; margin: 0 0 30px 0; line-height: 1.6; font-weight: 600; }}
             .modal-btn {{ padding: 12px 30px; background: #3b82f6; color: white; border: none; border-radius: 30px; cursor: pointer; font-size: 16px; font-weight: 800; }}
 
-            .sub-chart-label {{
-                position: absolute; top: 10px; left: 10px;
-                background: rgba(0,0,0,0.6); color: #ccc; font-size: 12px; padding: 2px 6px; border-radius: 4px; pointer-events: none; z-index: 10;
+            .sub-chart-controls {{
+                position: absolute; top: 10px; left: 10px; z-index: 200;
+            }}
+            .sub-select {{
+                background: rgba(40,40,40,0.9); color: #e5e7eb; border: 1px solid #555;
+                padding: 4px 8px; border-radius: 6px; font-size: 12px; outline: none; cursor: pointer;
             }}
         </style>
     </head>
@@ -289,7 +299,11 @@ def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_la
             </div>
 
             <div class="sub-chart-wrapper">
-                <div class="sub-chart-label">上位足: {sub_mode_label}</div>
+                <div class="sub-chart-controls">
+                    <select id="sub-chart-select" class="sub-select">
+                        {options_html}
+                    </select>
+                </div>
                 <div id="sub-chart-area" style="width:100%; height:100%;"></div>
             </div>
 
@@ -316,7 +330,7 @@ def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_la
         <script>
         (function(){{
             const d = {json_data};
-            const subD = {json_sub};
+            const subDMap = {json_sub_map}; // 各モードのデータが入ったMap
             const MSGS = {json_msgs};
             const ROUND_LEN = 20;
 
@@ -373,12 +387,23 @@ def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_la
                 wickUpColor: '#10b981', wickDownColor: '#f43f5e'
             }});
 
-            // Initialize Sub Chart Data
-            ssC.setData(subD.c);
-            ssM5.setData(subD.m5);
-            ssM25.setData(subD.m25);
-            ssM75.setData(subD.m75);
-            subChart.timeScale().fitContent();
+            function loadSubChart(key) {{
+                const sd = subDMap[key];
+                if (!sd) return;
+                ssC.setData(sd.c);
+                ssM5.setData(sd.m5);
+                ssM25.setData(sd.m25);
+                ssM75.setData(sd.m75);
+                subChart.timeScale().fitContent();
+            }}
+            
+            // 下部チャート切り替えイベント
+            const sel = document.getElementById('sub-chart-select');
+            if(sel) {{
+                 sel.onchange = (e) => loadSubChart(e.target.value);
+                 // 初期表示
+                 loadSubChart(sel.value);
+            }}
 
             // Main Chart Functions
             function updateNextOpenDisplay() {{
@@ -528,7 +553,9 @@ def render_game_html(data, sub_data, ticker_name, ticker_code, mode, sub_mode_la
                     setTimeout(()=>{{ ov.style.transition='all 1s ease-out'; ov.style.opacity=0; ov.style.transform='translate(-50%,-50%) scale(0.8)'; }}, 50);
                 }});
 
-                await animateCandle(next);
+                if (act !== 'skip') {{
+                   await animateCandle(next);
+                }}
 
                 document.getElementById('w-val').innerText=w;
                 document.getElementById('l-val').innerText=l;
@@ -694,7 +721,7 @@ with st.spinner("データを準備中..."):
                     # 週足・月足・日足すべて日付文字列でOK
                     t_val = t.strftime('%Y-%m-%d')
                     chart_d["c"].append({"time": t_val, "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close']})
-                    for m in ['m5', 'm25', 'm75']: chart_d[m].append({"time": t_val, "value": r['MA'+m.upper()[2:]]})
+                    for m in ['m5', 'm25', 'm75']: chart_d[m].append({"time": t_val, "value": r['MA'+m[1:]]})
                 final_sub_map[label] = chart_d
 
             comp_name = get_japanese_name(ticker_input)
