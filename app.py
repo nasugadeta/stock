@@ -52,16 +52,49 @@ def get_japanese_name(ticker):
 @st.cache_data(ttl=3600)
 def fetch_raw_data(ticker, period, interval):
     try:
-        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=False)
-    except Exception as e: return None, f"エラー: {e}"
-    if df.empty: return None, "データなし"
-    
-    if isinstance(df.columns, pd.MultiIndex):
-        try: df.columns = df.columns.get_level_values(0)
-        except: pass
+        # 3分足はyfinanceにないため、1分足を取得してリサンプリングする
+        if interval == "3m":
+            # 1分足を取得 (期間は7日が限界)
+            df = yf.download(ticker, period=period, interval="1m", progress=False, auto_adjust=False)
+            if df.empty:
+                return None, "データが見つかりませんでした (3m resampling from 1m)"
             
-    required = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if not all(c in df.columns for c in required): return None, "データ不足"
+            # マルチインデックス対応
+            if isinstance(df.columns, pd.MultiIndex):
+                try: df.columns = df.columns.get_level_values(0)
+                except: pass
+
+            # タイムゾーン処理前にリサンプリング用に処理
+            if df.index.tz is not None:
+                df.index = df.index.tz_convert('Asia/Tokyo')
+            
+            # 3分足にリサンプリング
+            # Openは最初の値、Highは最大値、Lowは最小値、Closeは最後の値、Volumeは合計
+            resampled = df.resample('3T').agg({
+                'Open': 'first',
+                'High': 'max',
+                'Low': 'min',
+                'Close': 'last',
+                'Volume': 'sum'
+            })
+            df = resampled.dropna()
+            
+            # 統一的に Naive にする
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            
+            return df, None
+
+        # 通常取得
+        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=False)
+        if df.empty: return None, "データなし"
+        
+        if isinstance(df.columns, pd.MultiIndex):
+            try: df.columns = df.columns.get_level_values(0)
+            except: pass
+            
+        required = ['Open', 'High', 'Low', 'Close', 'Volume']
+        if not all(c in df.columns for c in required): return None, "データ不足"
 
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
