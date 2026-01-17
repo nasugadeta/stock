@@ -447,71 +447,110 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 
                 const intervalSec = subIntervals[key];
                 
-                let filteredC = [], filteredM5 = [], filteredM25 = [], filteredM75 = [];
-                
-                if (intervalSec > 0 && currentMainTime && currentMainCData) {{
-                    // Intraday logic (Times are Unix Timestamps)
-                    // 1. Identify valid historical range (Completed bars)
-                    
-                    // Current forming bucket start time
-                    // Assuming intervalSec (300) is clean divisor usually, but usually timestamps are aligned to 00:00.
-                    // 5m bars are 0, 300, 600...
-                    const bucketStart = Math.floor(currentMainTime / intervalSec) * intervalSec;
-                    
-                    // Filter historical: valid if bar.time < bucketStart
-                    // We trust subDMap contains correct finalized bars.
-                    const checkHist = (t) => t < bucketStart;
+                // Helper: TS -> JST YYYY-MM-DD
+                const getJSTDateStr = (ts) => {{
+                    // ts is seconds. JS Date needs ms.
+                    // JST is UTC+9.
+                    // We can use Intl or simple offset. Simple offset is cleaner here.
+                    const d = new Date(ts * 1000);
+                    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+                    const jst = new Date(utc + (9 * 3600000));
+                    const y = jst.getFullYear();
+                    const m = ('0' + (jst.getMonth() + 1)).slice(-2);
+                    const day = ('0' + jst.getDate()).slice(-2);
+                    return `${{y}}-${{m}}-${{day}}`;
+                }};
 
-                    for(let i=0; i<sd.c.length; i++) {{
-                        if(checkHist(sd.c[i].time)) {{
-                            filteredC.push(sd.c[i]);
-                            filteredM5.push(sd.m5[i]);
-                            filteredM25.push(sd.m25[i]);
-                            filteredM75.push(sd.m75[i]);
+                let filteredC = [], filteredM5 = [], filteredM25 = [], filteredM75 = [];
+
+                if (currentMainTime) {{
+                    if (intervalSec > 0) {{
+                         // === INTRADAY SUB-CHART (e.g. 5m) ===
+                         // Main is Intraday (Timestamp). Sub is Intraday (Timestamp).
+                         // Logic: Show bar if (barTime + interval) <= currentMainTime (Completed)
+                         // Plus synthesize forming bar.
+                         
+                         const bucketStart = Math.floor(currentMainTime / intervalSec) * intervalSec;
+                         const checkHist = (t) => t < bucketStart;
+                         
+                         // Filter Historical
+                         for(let i=0; i<sd.c.length; i++) {{
+                            if(checkHist(sd.c[i].time)) {{
+                                filteredC.push(sd.c[i]);
+                                filteredM5.push(sd.m5[i]);
+                                filteredM25.push(sd.m25[i]);
+                                filteredM75.push(sd.m75[i]);
+                            }}
                         }}
-                    }}
-                    
-                    // 2. Synthesize Forming Candle
-                    // Find all main candles that belong to [bucketStart, currentMainTime]
-                    
-                    let formO=null, formH=-Infinity, formL=Infinity, formC=null, formVol=0;
-                    let found = false;
-                    
-                    for (let i = currentMainCData.length - 1; i >= 0; i--) {{
-                        const c = currentMainCData[i];
-                        if (c.time < bucketStart) break; // Finished current bucket
                         
-                        // Accumulate (order is reverse loop, so be careful with Open/Close)
-                        if (!found) {{ formC = c.close; found=true; }} // Last one we see is Close
-                        formO = c.open; // Keep updating Open (will end up being the earliest)
-                        formH = Math.max(formH, c.high);
-                        formL = Math.min(formL, c.low);
-                    }}
-                    
-                    if (found) {{
-                        const formCandle = {{ time: bucketStart, open: formO, high: formH, low: formL, close: formC }};
-                        filteredC.push(formCandle);
+                        // Synthesize Forming
+                        if (currentMainCData) {{
+                            let formO=null, formH=-Infinity, formL=Infinity, formC=null;
+                            let found = false;
+                            for (let i = currentMainCData.length - 1; i >= 0; i--) {{
+                                const c = currentMainCData[i];
+                                if (c.time < bucketStart) break;
+                                if (!found) {{ formC = c.close; found=true; }}
+                                formO = c.open;
+                                formH = Math.max(formH, c.high);
+                                formL = Math.min(formL, c.low);
+                            }}
+                            if (found) {{
+                                filteredC.push({{ time: bucketStart, open: formO, high: formH, low: formL, close: formC }});
+                            }}
+                        }}
                         
-                        // Note: We don't synthesize MAs for forming candle easily. 
-                        // Just stop MAs at previous bar.
-                    }}
-                    
-                }} else if (currentMainTime) {{
-                     // Daily/Weekly mode (Strings) - fallback to simple logic
-                     const check = (t) => {{
-                         if (typeof currentMainTime === 'number') return true; 
-                         return t < currentMainTime;
-                     }};
-                     for(let i=0; i<sd.c.length; i++) {{
-                        if(check(sd.c[i].time)) {{
-                            filteredC.push(sd.c[i]);
-                            filteredM5.push(sd.m5[i]);
-                            filteredM25.push(sd.m25[i]);
-                            filteredM75.push(sd.m75[i]);
+                    }} else {{
+                        // === DAILY/WEEKLY SUB-CHART ===
+                        // Main can be Intraday (TS) or Daily (String).
+                        // Sub Data is String (YYYY-MM-DD).
+                        
+                        let cutoffDateStr = currentMainTime;
+                        let isIntradayMain = (typeof currentMainTime === 'number');
+                        
+                        if (isIntradayMain) {{
+                            cutoffDateStr = getJSTDateStr(currentMainTime);
+                        }}
+                        
+                        // Filter: strictly less than current date (prevent spoiler of today's final bar)
+                        const check = (t) => t < cutoffDateStr;
+                        
+                        for(let i=0; i<sd.c.length; i++) {{
+                            if(check(sd.c[i].time)) {{
+                                filteredC.push(sd.c[i]);
+                                filteredM5.push(sd.m5[i]);
+                                filteredM25.push(sd.m25[i]);
+                                filteredM75.push(sd.m75[i]);
+                            }}
+                        }}
+                        
+                        // Synthesize Forming Daily Candle (ONLY if Main is Intraday and Sub is Daily)
+                        // Note: Weekly synthesis is harder, skipping for now.
+                        if (isIntradayMain && key === '日足' && currentMainCData) {{
+                            // Aggregate all intraday bars that match today's date
+                            let formO=null, formH=-Infinity, formL=Infinity, formC=null;
+                            let found = false;
+                            
+                            // Iterate backwards
+                            for (let i = currentMainCData.length - 1; i >= 0; i--) {{
+                                const c = currentMainCData[i];
+                                const cDate = getJSTDateStr(c.time);
+                                
+                                if (cDate !== cutoffDateStr) break; // Reached yesterday or different day
+                                
+                                if (!found) {{ formC = c.close; found=true; }}
+                                formO = c.open;
+                                formH = Math.max(formH, c.high);
+                                formL = Math.min(formL, c.low);
+                            }}
+                            
+                            if (found) {{
+                                filteredC.push({{ time: cutoffDateStr, open: formO, high: formH, low: formL, close: formC }});
+                            }}
                         }}
                     }}
                 }} else {{
-                    // Init view
+                    // Initial / No Context
                      filteredC = sd.c; filteredM5=sd.m5; filteredM25=sd.m25; filteredM75=sd.m75;
                 }}
 
