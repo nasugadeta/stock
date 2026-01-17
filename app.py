@@ -591,8 +591,8 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
 
             initGame(0);
 
-            function beep(t) {
-                try {
+            function beep(t) {{
+                try {{
                     if(!ac) ac=new(window.AudioContext||window.webkitAudioContext)();
                     if(ac.state==='suspended') ac.resume();
                     const o=ac.createOscillator(), g=ac.createGain();
