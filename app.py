@@ -448,16 +448,13 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 const intervalSec = subIntervals[key];
                 
                 // Helper: TS -> JST YYYY-MM-DD
+                // Since we created timestamps by treating JST Naive as UTC,
+                // we just need to read the UTC date components to get back the JST date.
                 const getJSTDateStr = (ts) => {{
-                    // ts is seconds. JS Date needs ms.
-                    // JST is UTC+9.
-                    // We can use Intl or simple offset. Simple offset is cleaner here.
                     const d = new Date(ts * 1000);
-                    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-                    const jst = new Date(utc + (9 * 3600000));
-                    const y = jst.getFullYear();
-                    const m = ('0' + (jst.getMonth() + 1)).slice(-2);
-                    const day = ('0' + jst.getDate()).slice(-2);
+                    const y = d.getUTCFullYear();
+                    const m = ('0' + (d.getUTCMonth() + 1)).slice(-2);
+                    const day = ('0' + d.getUTCDate()).slice(-2);
                     return `${{y}}-${{m}}-${{day}}`;
                 }};
 
