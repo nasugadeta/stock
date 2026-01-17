@@ -831,9 +831,17 @@ with st.spinner("データを準備中..."):
                 s_df_cut = s_df[s_df.index < cutoff_dt] if cutoff_dt else s_df
                 
                 chart_d = {"c": [], "m5": [], "m25": [], "m75": []}
+                
+                is_sub_intraday = (label == "5分足")
+                
                 for t, r in s_df_cut.iterrows():
-                    # 週足・月足・日足すべて日付文字列でOK
-                    t_val = t.strftime('%Y-%m-%d')
+                    if is_sub_intraday:
+                         # 5分足サブチャートの場合はタイムスタンプ（JST->UTC trick）
+                         t_val = int(t.replace(tzinfo=timezone.utc).timestamp())
+                    else:
+                         # 週足・月足・日足は日付文字列
+                         t_val = t.strftime('%Y-%m-%d')
+                         
                     chart_d["c"].append({"time": t_val, "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close']})
                     for m in ['m5', 'm25', 'm75']: chart_d[m].append({"time": t_val, "value": r['MA'+m[1:]]})
                 final_sub_map[label] = chart_d
