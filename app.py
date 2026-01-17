@@ -116,19 +116,18 @@ def process_data(df, mode, selected_date_str=None):
             ctx_df = df.iloc[:-PREDICT_DAYS_DAILY]
             tgt_df = df.iloc[-PREDICT_DAYS_DAILY:]
 
-    elif mode == '5m':
+    elif mode in ['5m', '3m', '1m']:
         if not selected_date_str: return None, "日付未選択"
         target_mask = df.index.strftime('%Y-%m-%d') == selected_date_str
         tgt_df = df.loc[target_mask]
         if tgt_df.empty: return None, "選択日のデータなし"
         
         # JS側でページングするため、ここでは全データを返す（リミットはJSで管理）
-        # tgt_df = tgt_df.iloc[:PREDICT_BARS_5M]
         
         cutoff_time = tgt_df.index[0]
         ctx_df = df[df.index < cutoff_time].tail(200)
 
-    is_intraday = (mode == '5m')
+    is_intraday = (mode in ['5m', '3m', '1m'])
 
     def make_entry(t_idx, r, is_intraday):
         if is_intraday:
@@ -171,7 +170,7 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
     
     # メインチャートの時間設定
     time_scale_opts = "{ timeVisible: true, secondsVisible: false }"
-    if mode == '5m':
+    if mode in ['5m', '3m', '1m']:
         time_scale_opts = """{
             timeVisible: true, 
             secondsVisible: false,
@@ -713,23 +712,38 @@ with c1:
                  ticker_input = None # 処理中断用
 
 with c2:
-    mode = st.radio("モード", ["日足", "5分足"], horizontal=True, label_visibility="collapsed")
-
+    mode = st.radio("モード", ["日足", "5分足", "3分足", "1分足"], horizontal=True, label_visibility="collapsed")
 
 # サブチャート用設定（選択肢定義のみ）
 sub_mode_map = {}
-if "5分" in mode:
-    game_mode = '5m'
-    sub_mode_map = {"日足": "1d", "週足": "1wk"}
-else:
+
+# モード判定
+if mode == "日足":
     game_mode = 'daily'
     sub_mode_map = {"週足": "1wk", "月足": "1mo"}
+elif mode == "5分足":
+    game_mode = '5m'
+    sub_mode_map = {"日足": "1d", "週足": "1wk"}
+elif mode == "3分足":
+    game_mode = '3m'
+    sub_mode_map = {"5分足": "5m", "日足": "1d", "週足": "1wk"}
+else: # 1分足
+    game_mode = '1m'
+    sub_mode_map = {"5分足": "5m", "日足": "1d", "週足": "1wk"}
 
-# 日付選択（5分足 or 日足）
+# 日付選択（イントラデイ or 日足）
 selected_date_opt = None
-if game_mode == '5m':
+if game_mode in ['1m', '3m', '5m']:
+    # イントラデイ用日付選択
+    # 1分足・3分足は period="7d" が限界なので、直近7日分から選ぶ
+    # 5分足は "60d"
+    check_period = "7d" if game_mode in ['1m', '3m'] else "60d"
+    check_interval = "1m" if game_mode in ['1m', '3m'] else "5m"
+    
     with st.spinner("日付データを取得中..."):
-        df_check, err = fetch_raw_data(ticker_input, "60d", "5m")
+        # 日付リスト取得のためだけなので、リサンプリング不要で1m/5mそのまま使う
+        df_check, err = fetch_raw_data(ticker_input, check_period, check_interval)
+        
         if df_check is not None and not df_check.empty:
             dates = sorted(list(set(df_check.index.strftime('%Y-%m-%d'))), reverse=True)
             with c3:
@@ -756,8 +770,15 @@ st.markdown("---")
 # 常に実行
 with st.spinner("データを準備中..."):
     # メインチャート用データ
-    period = "10y" if game_mode == 'daily' else "60d"
-    interval = "1d" if game_mode == 'daily' else "5m"
+    if game_mode == 'daily':
+        period = "10y"
+        interval = "1d"
+    elif game_mode in ['1m', '3m']:
+        period = "7d"
+        interval = game_mode # "1m" or "3m" (fetch_raw_data handles 3m)
+    else: # 5m
+        period = "60d"
+        interval = "5m"
     
     raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
     
@@ -766,8 +787,12 @@ with st.spinner("データを準備中..."):
     sub_errors = []
     
     for label, sub_int in sub_mode_map.items():
-        sub_period = "10y"
-        s_df, s_err = fetch_raw_data(ticker_input, sub_period, sub_int)
+        # サブチャートの期間設定
+        # 日足/週足/月足は10yでOK
+        # 5分足は60d
+        s_period = "60d" if sub_int == "5m" else "10y"
+        
+        s_df, s_err = fetch_raw_data(ticker_input, s_period, sub_int)
         if s_err:
             sub_errors.append(f"{label}: {s_err}")
             continue
