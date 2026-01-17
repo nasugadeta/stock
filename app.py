@@ -163,10 +163,11 @@ def process_data(df, mode, selected_date_str=None):
 
     return {"ctx": ctx_data, "tgt": tgt_data}, None
 
-def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mode_keys):
+def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mode_keys, sub_intervals):
     json_data = json.dumps(data)
     json_sub_map = json.dumps(sub_data_map)
     json_msgs = json.dumps(MESSAGES)
+    json_sub_intervals = json.dumps(sub_intervals)
     
     # メインチャートの時間設定
     time_scale_opts = "{ timeVisible: true, secondsVisible: false }"
@@ -343,108 +344,207 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
         </div>
 
         <script>
-        (function(){{
+        (function(){
             const d = {json_data};
-            const subDMap = {json_sub_map}; // 各モードのデータが入ったMap
+            const subDMap = {json_sub_map}; 
+            const subIntervals = {json_sub_intervals};
             const MSGS = {json_msgs};
             const ROUND_LEN = 20;
 
-            let startIdx = 0; // 現在のラウンドの開始インデックス
-            let idx = 0;      // 現在のグローバルインデックス
+            let startIdx = 0; 
+            let idx = 0;      
             let w = 0, l = 0;
             let ac = null; let priceLine = null;
+            let currentSubKey = null;
 
             // === Main Chart ===
-            const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {{
-                layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
-                grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
+            const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {
+                layout: { backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" },
+                grid: { vertLines: { visible: false }, horzLines: { visible: true, color: '#333' } },
                 timeScale: {time_scale_opts},
-                rightPriceScale: {{ borderColor: '#333', scaleMargins: {{ top: 0.1, bottom: 0.2 }} }},
-                crosshair: {{ vertLine: {{ color: '#555', labelBackgroundColor: '#555' }}, horzLine: {{ color: '#555', labelBackgroundColor: '#555' }} }}
-            }});
+                rightPriceScale: { borderColor: '#333', scaleMargins: { top: 0.1, bottom: 0.2 } },
+                crosshair: { vertLine: { color: '#555', labelBackgroundColor: '#555' }, horzLine: { color: '#555', labelBackgroundColor: '#555' } }
+            });
 
-            const sM75 = chart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
-            const sM25 = chart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
-            const sM5  = chart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
+            const sM75 = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' });
+            const sM25 = chart.addLineSeries({ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' });
+            const sM5  = chart.addLineSeries({ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' });
             
-            const sC = chart.addCandlestickSeries({{ 
+            const sC = chart.addCandlestickSeries({ 
                 upColor: '#10b981', downColor: '#f43f5e', 
                 borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
                 wickUpColor: '#10b981', wickDownColor: '#f43f5e',
                 lastValueVisible: false, priceLineVisible: false 
-            }});
+            });
             
-            const sNextOpen = chart.addCandlestickSeries({{ 
+            const sNextOpen = chart.addCandlestickSeries({ 
                 upColor: '#FFD700', downColor: '#FFD700', borderUpColor: '#FFD700', borderDownColor: '#FFD700', wickUpColor: '#FFD700', wickDownColor: '#FFD700',
                 lastValueVisible: false, priceLineVisible: false 
-            }});
+            });
             
-            const sV = chart.addHistogramSeries({{ 
-                priceFormat: {{ type: 'volume' }}, priceScaleId: '', scaleMargins: {{ top: 0.8, bottom: 0 }},
+            const sV = chart.addHistogramSeries({ 
+                priceFormat: { type: 'volume' }, priceScaleId: '', scaleMargins: { top: 0.8, bottom: 0 },
                 lastValueVisible: false, priceLineVisible: false 
-            }});
+            });
 
             // === Sub Chart ===
-            const subChart = LightweightCharts.createChart(document.getElementById('sub-chart-area'), {{
-                layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
-                grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
-                rightPriceScale: {{ borderColor: '#333' }},
-                timeScale: {{ borderVisible: false }}
-            }});
+            const subChart = LightweightCharts.createChart(document.getElementById('sub-chart-area'), {
+                layout: { backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" },
+                grid: { vertLines: { visible: false }, horzLines: { visible: true, color: '#333' } },
+                rightPriceScale: { borderColor: '#333' },
+                timeScale: { borderVisible: false }
+            });
             
-            const ssM75 = subChart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
-            const ssM25 = subChart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
-            const ssM5  = subChart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
+            const ssM75 = subChart.addLineSeries({ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
+            const ssM25 = subChart.addLineSeries({ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
+            const ssM5  = subChart.addLineSeries({ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
             
-            const ssC = subChart.addCandlestickSeries({{ 
+            const ssC = subChart.addCandlestickSeries({ 
                 upColor: '#10b981', downColor: '#f43f5e', 
                 borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
                 wickUpColor: '#10b981', wickDownColor: '#f43f5e'
-            }});
+            });
 
-            function loadSubChart(key) {{
+            function loadSubChart(key, currentMainTime, currentMainCData) {
+                currentSubKey = key;
                 const sd = subDMap[key];
                 if (!sd) return;
-                ssC.setData(sd.c);
-                ssM5.setData(sd.m5);
-                ssM25.setData(sd.m25);
-                ssM75.setData(sd.m75);
                 
-                // Show last 100 bars
-                const total = sd.c.length;
-                if (total > 0) {{
-                     const fromIdx = Math.max(0, total - 100);
-                     subChart.timeScale().setVisibleLogicalRange({{ from: fromIdx, to: total + 4 }});
-                }} else {{
-                     subChart.timeScale().fitContent();
-                }}
-            }}
+                const intervalSec = subIntervals[key];
+                
+                let filteredC = [], filteredM5 = [], filteredM25 = [], filteredM75 = [];
+                
+                if (intervalSec > 0 && currentMainTime && currentMainCData) {
+                    // Intraday logic (Times are Unix Timestamps)
+                    // 1. Identify valid historical range (Completed bars)
+                    // A bar is completed if its time + interval <= currentMainTime?
+                    // Actually, simpler: sub-bar starts at T. Ends at T+300.
+                    // If T+300 <= currentMainTime, it's definitely past.
+                    // However, we want to exclude exactly the current bucket from historical data
+                    // and replace/append it with our aggregated version.
+                    
+                    // Current forming bucket start time
+                    // Assuming intervalSec (300) is clean divisor usually, but usually timestamps are aligned to 00:00.
+                    // 5m bars are 0, 300, 600...
+                    const bucketStart = Math.floor(currentMainTime / intervalSec) * intervalSec;
+                    
+                    // Filter historical: valid if bar.time < bucketStart
+                    // We trust subDMap contains correct finalized bars.
+                    const checkHist = (t) => t < bucketStart;
+
+                    for(let i=0; i<sd.c.length; i++) {
+                        if(checkHist(sd.c[i].time)) {
+                            filteredC.push(sd.c[i]);
+                            filteredM5.push(sd.m5[i]);
+                            filteredM25.push(sd.m25[i]);
+                            filteredM75.push(sd.m75[i]);
+                        }
+                    }
+                    
+                    // 2. Synthesize Forming Candle
+                    // Find all main candles that belong to [bucketStart, currentMainTime]
+                    // Actually we just look at cData.
+                    // Since cData is ordered, we take trailing bars that are >= bucketStart
+                    
+                    let formO=null, formH=-Infinity, formL=Infinity, formC=null, formVol=0;
+                    let found = false;
+                    
+                    for (let i = currentMainCData.length - 1; i >= 0; i--) {
+                        const c = currentMainCData[i];
+                        if (c.time < bucketStart) break; // Finished current bucket
+                        
+                        // Accumulate (order is reverse loop, so be careful with Open/Close)
+                        // Actually easier to allow reverse and set Open/Close smartly
+                        if (!found) { formC = c.close; found=true; } // Last one we see is Close
+                        formO = c.open; // Keep updating Open (will end up being the earliest)
+                        formH = Math.max(formH, c.high);
+                        formL = Math.min(formL, c.low);
+                    }
+                    
+                    if (found) {
+                        const formCandle = { time: bucketStart, open: formO, high: formH, low: formL, close: formC };
+                        filteredC.push(formCandle);
+                        
+                        // Note: We don't synthesize MAs for forming candle easily. 
+                        // Just stop MAs at previous bar.
+                    }
+                    
+                } else if (currentMainTime) {
+                     // Daily/Weekly mode (Strings) - fallback to simple logic
+                     const check = (t) => {
+                         if (typeof currentMainTime === 'number') return true; 
+                         return t < currentMainTime;
+                     };
+                     for(let i=0; i<sd.c.length; i++) {
+                        if(check(sd.c[i].time)) {
+                            filteredC.push(sd.c[i]);
+                            filteredM5.push(sd.m5[i]);
+                            filteredM25.push(sd.m25[i]);
+                            filteredM75.push(sd.m75[i]);
+                        }
+                    }
+                } else {
+                    // Init view
+                     filteredC = sd.c; filteredM5=sd.m5; filteredM25=sd.m25; filteredM75=sd.m75;
+                }
+
+                ssC.setData(filteredC);
+                ssM5.setData(filteredM5);
+                ssM25.setData(filteredM25);
+                ssM75.setData(filteredM75);
+                
+                if (!currentMainTime) {
+                    const total = filteredC.length;
+                    if (total > 0) {
+                        const fromIdx = Math.max(0, total - 100);
+                        subChart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: total + 4 });
+                    } else {
+                        subChart.timeScale().fitContent();
+                    }
+                }
+            }
             
-            // 下部チャート切り替えイベント
+            // 下部チャート切り替え event
             const sel = document.getElementById('sub-chart-select');
-            if(sel) {{
-                 sel.onchange = (e) => loadSubChart(e.target.value);
+            if(sel) {
+                 sel.onchange = (e) => {
+                     // Get current main info
+                     let curT = null;
+                     let curCData = null;
+                     if (idx < d.tgt.c.length) {
+                         const curData = (idx > 0) ? d.tgt.c[idx-1] : d.ctx.c[d.ctx.c.length-1];
+                         curT = curData.time;
+                         // Ideally we need full cData access here, but this is an edge case (switch mid-game)
+                         // We can grab global cData from render scope? No it's local.
+                         // We can reconstruct roughly or wait for next render.
+                         // Let's pass null cData forces static view updates on next step.
+                         // Or reconstructed:
+                         const currentFull = [...d.ctx.c, ...d.tgt.c.slice(0, idx)];
+                         curCData = currentFull;
+                     }
+                     loadSubChart(e.target.value, curT, curCData);
+                 };
                  // 初期表示
                  loadSubChart(sel.value);
-            }}
+            }
 
             // Main Chart Functions
-            function updateNextOpenDisplay() {{
-                if (idx >= d.tgt.c.length) {{
+            function updateNextOpenDisplay() {
+                if (idx >= d.tgt.c.length) {
                     sNextOpen.setData([]);
                     document.getElementById('price-label').style.display = 'none';
-                    if (priceLine) {{ sC.removePriceLine(priceLine); priceLine = null; }}
+                    if (priceLine) { sC.removePriceLine(priceLine); priceLine = null; }
                     return;
-                }}
+                }
                 const nextData = d.tgt.c[idx];
                 document.getElementById('price-val').innerText = nextData.open.toLocaleString();
                 document.getElementById('price-label').style.display = 'block';
                 if (priceLine) sC.removePriceLine(priceLine);
-                priceLine = sC.createPriceLine({{ price: nextData.open, color: '#FFD700', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }});
-                sNextOpen.setData([{{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }}]);
-            }}
+                priceLine = sC.createPriceLine({ price: nextData.open, color: '#FFD700', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                sNextOpen.setData([{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }]);
+            }
 
-            function render(i) {{
+            function render(i) {
                 const cData = [...d.ctx.c, ...d.tgt.c.slice(0, i)];
                 sC.setData(cData);
                 sV.setData([...d.ctx.v, ...d.tgt.v.slice(0, i)]);
@@ -452,13 +552,40 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 sM25.setData([...d.ctx.m25, ...d.tgt.m25.slice(0, i)]);
                 sM75.setData([...d.ctx.m75, ...d.tgt.m75.slice(0, i)]);
                 updateNextOpenDisplay();
-            }}
+                
+                // Update Sub Chart
+                if (currentSubKey) {
+                    // Current visible main candle time is the LAST one in cData
+                    if (cData.length > 0) {
+                        const lastMain = cData[cData.length - 1];
+                        loadSubChart(currentSubKey, lastMain.time, cData);
+                    }
+                }
+            }
 
-            function initGame(baseIdx) {{
+            function initGame(baseIdx) {
                 startIdx = baseIdx;
                 idx = startIdx;
                 w = 0; l = 0;
                 
+                currentSubKey = document.getElementById('sub-chart-select').value;
+                
+                // Initial render
+                // Identify context end time
+                const ctxEnd = d.ctx.c.length > 0 ? d.ctx.c[d.ctx.c.length-1].time : null;
+                // If starting mid-game (idx>0), correct time is d.tgt.c[idx-1].time
+                let initTime = ctxEnd;
+                if (idx > 0) {
+                    initTime = d.tgt.c[idx-1].time;
+                }
+                
+                const cDataInit = [...d.ctx.c, ...d.tgt.c.slice(0, idx)];
+                if (cDataInit.length > 0) {
+                     initTime = cDataInit[cDataInit.length - 1].time;
+                }
+                
+                loadSubChart(currentSubKey, initTime, cDataInit);
+
                 document.getElementById('w-val').innerText = '0';
                 document.getElementById('l-val').innerText = '0';
                 document.getElementById('r-val').innerText = ROUND_LEN;
@@ -467,13 +594,13 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 render(idx);
                 // 範囲調整
                 const totalVisible = d.ctx.c.length + idx;
-                chart.timeScale().setVisibleLogicalRange({{ from: totalVisible - 50, to: totalVisible + 5 }});
-            }}
+                chart.timeScale().setVisibleLogicalRange({ from: totalVisible - 50, to: totalVisible + 5 });
+            }
 
             initGame(0);
 
-            function beep(t) {{
-                try {{
+            function beep(t) {
+                try {
                     if(!ac) ac=new(window.AudioContext||window.webkitAudioContext)();
                     if(ac.state==='suspended') ac.resume();
                     const o=ac.createOscillator(), g=ac.createGain();
@@ -814,25 +941,29 @@ with st.spinner("データを準備中..."):
         if proc_err:
             st.error(proc_err)
         else:
-            # カットオフ設定
-            cutoff_dt = None
-            if game_data['tgt']['c']:
-                if game_mode == 'daily':
-                     cutoff_dt = pd.Timestamp(game_data['tgt']['c'][0]['time'])
-                else:
-                    ts = game_data['tgt']['c'][0]['time']
-                    dt_utc = datetime.fromtimestamp(ts, timezone.utc)
-                    cutoff_dt = dt_utc.replace(tzinfo=None)
-
             # 各サブチャートを整形して格納
             final_sub_map = {}
+            sub_intervals = {} # JSに渡す期間（秒）。日足などの場合は0
+            
+            # ゲーム終了時刻（ターゲットデータの最後）を取得して、そこまでサブチャートを含める
+            game_end_dt = None
+            if game_data['tgt']['c']:
+                last_tgt = game_data['tgt']['c'][-1]['time']
+                if game_mode == 'daily':
+                     game_end_dt = pd.Timestamp(last_tgt)
+                else:
+                    ts = last_tgt
+                    dt_utc = datetime.fromtimestamp(ts, timezone.utc)
+                    game_end_dt = dt_utc.replace(tzinfo=None)
+
             for label, s_df in sub_datasets.items():
-                # Cutoff
-                s_df_cut = s_df[s_df.index < cutoff_dt] if cutoff_dt else s_df
+                # Cutoff: allow up to game end
+                s_df_cut = s_df[s_df.index <= game_end_dt] if game_end_dt else s_df
                 
                 chart_d = {"c": [], "m5": [], "m25": [], "m75": []}
                 
                 is_sub_intraday = (label == "5分足")
+                sub_intervals[label] = 300 if is_sub_intraday else 0
                 
                 for t, r in s_df_cut.iterrows():
                     if is_sub_intraday:
@@ -847,6 +978,6 @@ with st.spinner("データを準備中..."):
                 final_sub_map[label] = chart_d
 
             comp_name = get_japanese_name(ticker_input)
-            # sub_mode_mapのキーを渡して、JS側で並び順などを制御できるようにする
-            game_html = render_game_html(game_data, final_sub_map, comp_name, ticker_input, game_mode, list(sub_mode_map.keys()))
+            # pass sub_intervals
+            game_html = render_game_html(game_data, final_sub_map, comp_name, ticker_input, game_mode, list(sub_mode_map.keys()), sub_intervals)
             st.components.v1.html(game_html, height=850, scrolling=False)
