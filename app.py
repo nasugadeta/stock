@@ -344,7 +344,7 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
         </div>
 
         <script>
-        (function(){{
+        (function(){
             const d = {json_data};
             const subDMap = {json_sub_map}; 
             const subIntervals = {json_sub_intervals};
@@ -358,54 +358,54 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
             let currentSubKey = null;
 
             // === Main Chart ===
-            const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {{
-                layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
-                grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
+            const chart = LightweightCharts.createChart(document.getElementById('chart-area'), {
+                layout: { backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" },
+                grid: { vertLines: { visible: false }, horzLines: { visible: true, color: '#333' } },
                 timeScale: {time_scale_opts},
-                rightPriceScale: {{ borderColor: '#333', scaleMargins: {{ top: 0.1, bottom: 0.2 }} }},
-                crosshair: {{ vertLine: {{ color: '#555', labelBackgroundColor: '#555' }}, horzLine: {{ color: '#555', labelBackgroundColor: '#555' }} }}
-            }});
+                rightPriceScale: { borderColor: '#333', scaleMargins: { top: 0.1, bottom: 0.2 } },
+                crosshair: { vertLine: { color: '#555', labelBackgroundColor: '#555' }, horzLine: { color: '#555', labelBackgroundColor: '#555' } }
+            });
 
-            const sM75 = chart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
-            const sM25 = chart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
-            const sM5  = chart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' }});
+            const sM75 = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' });
+            const sM25 = chart.addLineSeries({ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' });
+            const sM5  = chart.addLineSeries({ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false, priceScaleId: 'right' });
             
-            const sC = chart.addCandlestickSeries({{ 
+            const sC = chart.addCandlestickSeries({ 
                 upColor: '#10b981', downColor: '#f43f5e', 
                 borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
                 wickUpColor: '#10b981', wickDownColor: '#f43f5e',
                 lastValueVisible: false, priceLineVisible: false 
-            }});
+            });
             
-            const sNextOpen = chart.addCandlestickSeries({{ 
+            const sNextOpen = chart.addCandlestickSeries({ 
                 upColor: '#FFD700', downColor: '#FFD700', borderUpColor: '#FFD700', borderDownColor: '#FFD700', wickUpColor: '#FFD700', wickDownColor: '#FFD700',
                 lastValueVisible: false, priceLineVisible: false 
-            }});
+            });
             
-            const sV = chart.addHistogramSeries({{ 
-                priceFormat: {{ type: 'volume' }}, priceScaleId: '', scaleMargins: {{ top: 0.8, bottom: 0 }},
+            const sV = chart.addHistogramSeries({ 
+                priceFormat: { type: 'volume' }, priceScaleId: '', scaleMargins: { top: 0.8, bottom: 0 },
                 lastValueVisible: false, priceLineVisible: false 
-            }});
+            });
 
             // === Sub Chart ===
-            const subChart = LightweightCharts.createChart(document.getElementById('sub-chart-area'), {{
-                layout: {{ backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" }},
-                grid: {{ vertLines: {{ visible: false }}, horzLines: {{ visible: true, color: '#333' }} }},
-                rightPriceScale: {{ borderColor: '#333' }},
-                timeScale: {{ borderVisible: false }}
-            }});
+            const subChart = LightweightCharts.createChart(document.getElementById('sub-chart-area'), {
+                layout: { backgroundColor: '#222', textColor: '#9ca3af', fontFamily: "'Inter', sans-serif" },
+                grid: { vertLines: { visible: false }, horzLines: { visible: true, color: '#333' } },
+                rightPriceScale: { borderColor: '#333' },
+                timeScale: { borderVisible: false }
+            });
             
-            const ssM75 = subChart.addLineSeries({{ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
-            const ssM25 = subChart.addLineSeries({{ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
-            const ssM5  = subChart.addLineSeries({{ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false }});
+            const ssM75 = subChart.addLineSeries({ color: '#a855f7', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
+            const ssM25 = subChart.addLineSeries({ color: '#34d399', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
+            const ssM5  = subChart.addLineSeries({ color: '#facc15', lineWidth: 1, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
             
-            const ssC = subChart.addCandlestickSeries({{ 
+            const ssC = subChart.addCandlestickSeries({ 
                 upColor: '#10b981', downColor: '#f43f5e', 
                 borderUpColor: '#10b981', borderDownColor: '#f43f5e', 
                 wickUpColor: '#10b981', wickDownColor: '#f43f5e'
-            }});
+            });
 
-            function loadSubChart(key, currentMainTime, currentMainCData) {{
+            function loadSubChart(key, currentMainTime, currentMainCData) {
                 currentSubKey = key;
                 const sd = subDMap[key];
                 if (!sd) return;
@@ -414,9 +414,14 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 
                 let filteredC = [], filteredM5 = [], filteredM25 = [], filteredM75 = [];
                 
-                if (intervalSec > 0 && currentMainTime && currentMainCData) {{
+                if (intervalSec > 0 && currentMainTime && currentMainCData) {
                     // Intraday logic (Times are Unix Timestamps)
                     // 1. Identify valid historical range (Completed bars)
+                    // A bar is completed if its time + interval <= currentMainTime?
+                    // Actually, simpler: sub-bar starts at T. Ends at T+300.
+                    // If T+300 <= currentMainTime, it's definitely past.
+                    // However, we want to exclude exactly the current bucket from historical data
+                    // and replace/append it with our aggregated version.
                     
                     // Current forming bucket start time
                     // Assuming intervalSec (300) is clean divisor usually, but usually timestamps are aligned to 00:00.
@@ -427,83 +432,86 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                     // We trust subDMap contains correct finalized bars.
                     const checkHist = (t) => t < bucketStart;
 
-                    for(let i=0; i<sd.c.length; i++) {{
-                        if(checkHist(sd.c[i].time)) {{
+                    for(let i=0; i<sd.c.length; i++) {
+                        if(checkHist(sd.c[i].time)) {
                             filteredC.push(sd.c[i]);
                             filteredM5.push(sd.m5[i]);
                             filteredM25.push(sd.m25[i]);
                             filteredM75.push(sd.m75[i]);
-                        }}
-                    }}
+                        }
+                    }
                     
                     // 2. Synthesize Forming Candle
                     // Find all main candles that belong to [bucketStart, currentMainTime]
+                    // Actually we just look at cData.
+                    // Since cData is ordered, we take trailing bars that are >= bucketStart
                     
                     let formO=null, formH=-Infinity, formL=Infinity, formC=null, formVol=0;
                     let found = false;
                     
-                    for (let i = currentMainCData.length - 1; i >= 0; i--) {{
+                    for (let i = currentMainCData.length - 1; i >= 0; i--) {
                         const c = currentMainCData[i];
                         if (c.time < bucketStart) break; // Finished current bucket
                         
                         // Accumulate (order is reverse loop, so be careful with Open/Close)
-                        if (!found) {{ formC = c.close; found=true; }} // Last one we see is Close
+                        // Actually easier to allow reverse and set Open/Close smartly
+                        if (!found) { formC = c.close; found=true; } // Last one we see is Close
                         formO = c.open; // Keep updating Open (will end up being the earliest)
                         formH = Math.max(formH, c.high);
                         formL = Math.min(formL, c.low);
-                    }}
+                    }
                     
-                    if (found) {{
-                        const formCandle = {{ time: bucketStart, open: formO, high: formH, low: formL, close: formC }};
+                    if (found) {
+                        const formCandle = { time: bucketStart, open: formO, high: formH, low: formL, close: formC };
                         filteredC.push(formCandle);
                         
                         // Note: We don't synthesize MAs for forming candle easily. 
                         // Just stop MAs at previous bar.
-                    }}
+                    }
                     
-                }} else if (currentMainTime) {{
+                } else if (currentMainTime) {
                      // Daily/Weekly mode (Strings) - fallback to simple logic
-                     const check = (t) => {{
+                     const check = (t) => {
                          if (typeof currentMainTime === 'number') return true; 
                          return t < currentMainTime;
-                     }};
-                     for(let i=0; i<sd.c.length; i++) {{
-                        if(check(sd.c[i].time)) {{
+                     };
+                     for(let i=0; i<sd.c.length; i++) {
+                        if(check(sd.c[i].time)) {
                             filteredC.push(sd.c[i]);
                             filteredM5.push(sd.m5[i]);
                             filteredM25.push(sd.m25[i]);
                             filteredM75.push(sd.m75[i]);
-                        }}
-                    }}
-                }} else {{
+                        }
+                    }
+                } else {
                     // Init view
                      filteredC = sd.c; filteredM5=sd.m5; filteredM25=sd.m25; filteredM75=sd.m75;
-                }}
+                }
 
                 ssC.setData(filteredC);
                 ssM5.setData(filteredM5);
                 ssM25.setData(filteredM25);
                 ssM75.setData(filteredM75);
                 
-                if (!currentMainTime) {{
+                if (!currentMainTime) {
                     const total = filteredC.length;
-                    if (total > 0) {{
+                    if (total > 0) {
                         const fromIdx = Math.max(0, total - 100);
-                        subChart.timeScale().setVisibleLogicalRange({{ from: fromIdx, to: total + 4 }});
-                    }} else {{
+                        subChart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: total + 4 });
+                    } else {
                         subChart.timeScale().fitContent();
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
             
             // 下部チャート切り替え event
             const sel = document.getElementById('sub-chart-select');
-            if(sel) {{
-                 sel.onchange = (e) => {{
+            if(sel) {
+                 sel.onchange = (e) => {
                      // Get current main info
                      let curT = null;
                      let curCData = null;
-                     if (idx < d.tgt.c.length) {{
+                     if (idx < d.tgt.c.length) {
                          const curData = (idx > 0) ? d.tgt.c[idx-1] : d.ctx.c[d.ctx.c.length-1];
                          curT = curData.time;
                          // Ideally we need full cData access here, but this is an edge case (switch mid-game)
@@ -513,30 +521,30 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                          // Or reconstructed:
                          const currentFull = [...d.ctx.c, ...d.tgt.c.slice(0, idx)];
                          curCData = currentFull;
-                     }}
+                     }
                      loadSubChart(e.target.value, curT, curCData);
-                 }};
+                 };
                  // 初期表示
                  loadSubChart(sel.value);
-            }}
+            }
 
             // Main Chart Functions
-            function updateNextOpenDisplay() {{
-                if (idx >= d.tgt.c.length) {{
+            function updateNextOpenDisplay() {
+                if (idx >= d.tgt.c.length) {
                     sNextOpen.setData([]);
                     document.getElementById('price-label').style.display = 'none';
-                    if (priceLine) {{ sC.removePriceLine(priceLine); priceLine = null; }}
+                    if (priceLine) { sC.removePriceLine(priceLine); priceLine = null; }
                     return;
-                }}
+                }
                 const nextData = d.tgt.c[idx];
                 document.getElementById('price-val').innerText = nextData.open.toLocaleString();
                 document.getElementById('price-label').style.display = 'block';
                 if (priceLine) sC.removePriceLine(priceLine);
-                priceLine = sC.createPriceLine({{ price: nextData.open, color: '#FFD700', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }});
-                sNextOpen.setData([{{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }}]);
-            }}
+                priceLine = sC.createPriceLine({ price: nextData.open, color: '#FFD700', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                sNextOpen.setData([{ time: nextData.time, open: nextData.open, high: nextData.open, low: nextData.open, close: nextData.open }]);
+            }
 
-            function render(i) {{
+            function render(i) {
                 const cData = [...d.ctx.c, ...d.tgt.c.slice(0, i)];
                 sC.setData(cData);
                 sV.setData([...d.ctx.v, ...d.tgt.v.slice(0, i)]);
@@ -546,16 +554,16 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 updateNextOpenDisplay();
                 
                 // Update Sub Chart
-                if (currentSubKey) {{
+                if (currentSubKey) {
                     // Current visible main candle time is the LAST one in cData
-                    if (cData.length > 0) {{
+                    if (cData.length > 0) {
                         const lastMain = cData[cData.length - 1];
                         loadSubChart(currentSubKey, lastMain.time, cData);
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
 
-            function initGame(baseIdx) {{
+            function initGame(baseIdx) {
                 startIdx = baseIdx;
                 idx = startIdx;
                 w = 0; l = 0;
@@ -567,14 +575,14 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 const ctxEnd = d.ctx.c.length > 0 ? d.ctx.c[d.ctx.c.length-1].time : null;
                 // If starting mid-game (idx>0), correct time is d.tgt.c[idx-1].time
                 let initTime = ctxEnd;
-                if (idx > 0) {{
+                if (idx > 0) {
                     initTime = d.tgt.c[idx-1].time;
-                }}
+                }
                 
                 const cDataInit = [...d.ctx.c, ...d.tgt.c.slice(0, idx)];
-                if (cDataInit.length > 0) {{
+                if (cDataInit.length > 0) {
                      initTime = cDataInit[cDataInit.length - 1].time;
-                }}
+                }
                 
                 loadSubChart(currentSubKey, initTime, cDataInit);
 
@@ -586,13 +594,13 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 render(idx);
                 // 範囲調整
                 const totalVisible = d.ctx.c.length + idx;
-                chart.timeScale().setVisibleLogicalRange({{ from: totalVisible - 50, to: totalVisible + 5 }});
-            }}
+                chart.timeScale().setVisibleLogicalRange({ from: totalVisible - 50, to: totalVisible + 5 });
+            }
 
             initGame(0);
 
-            function beep(t) {{
-                try {{
+            function beep(t) {
+                try {
                     if(!ac) ac=new(window.AudioContext||window.webkitAudioContext)();
                     if(ac.state==='suspended') ac.resume();
                     const o=ac.createOscillator(), g=ac.createGain();
