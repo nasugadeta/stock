@@ -96,6 +96,8 @@ def fetch_raw_data(ticker, period, interval):
         required = ['Open', 'High', 'Low', 'Close', 'Volume']
         if not all(c in df.columns for c in required): return None, "データ不足"
 
+    except Exception as e: return None, f"エラー: {e}"
+
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
