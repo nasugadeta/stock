@@ -52,51 +52,16 @@ def get_japanese_name(ticker):
 @st.cache_data(ttl=3600)
 def fetch_raw_data(ticker, period, interval):
     try:
-        # 3分足はyfinanceにないため、1分足を取得してリサンプリングする
-        if interval == "3m":
-            # 1分足を取得 (期間は7日が限界)
-            df = yf.download(ticker, period=period, interval="1m", progress=False, auto_adjust=False)
-            if df.empty:
-                return None, "データが見つかりませんでした (3m resampling from 1m)"
-            
-            # マルチインデックス対応
-            if isinstance(df.columns, pd.MultiIndex):
-                try: df.columns = df.columns.get_level_values(0)
-                except: pass
-
-            # タイムゾーン処理前にリサンプリング用に処理
-            if df.index.tz is not None:
-                df.index = df.index.tz_convert('Asia/Tokyo')
-            
-            # 3分足にリサンプリング
-            # Openは最初の値、Highは最大値、Lowは最小値、Closeは最後の値、Volumeは合計
-            resampled = df.resample('3T').agg({
-                'Open': 'first',
-                'High': 'max',
-                'Low': 'min',
-                'Close': 'last',
-                'Volume': 'sum'
-            })
-            df = resampled.dropna()
-            
-            # 統一的に Naive にする
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
-            
-            return df, None
-
-        # 通常取得
         df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=False)
-        if df.empty: return None, "データなし"
-        
-        if isinstance(df.columns, pd.MultiIndex):
-            try: df.columns = df.columns.get_level_values(0)
-            except: pass
-            
-        required = ['Open', 'High', 'Low', 'Close', 'Volume']
-        if not all(c in df.columns for c in required): return None, "データ不足"
-
     except Exception as e: return None, f"エラー: {e}"
+    if df.empty: return None, "データなし"
+    
+    if isinstance(df.columns, pd.MultiIndex):
+        try: df.columns = df.columns.get_level_values(0)
+        except: pass
+            
+    required = ['Open', 'High', 'Low', 'Close', 'Volume']
+    if not all(c in df.columns for c in required): return None, "データ不足"
 
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
@@ -447,144 +412,71 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                 
                 const intervalSec = subIntervals[key];
                 
-                // Helper: TS -> JST YYYY-MM-DD
-                const getJSTDateStr = (ts) => {{
-                    // Treat timestamp as UTC to recover JST Naive components
-                    const d = new Date(ts * 1000);
-                    const y = d.getUTCFullYear();
-                    const m = ('0' + (d.getUTCMonth() + 1)).slice(-2);
-                    const day = ('0' + d.getUTCDate()).slice(-2);
-                    return `${{y}}-${{m}}-${{day}}`;
-                }};
-                
-                // Helper: Get start of period date string
-                const getStartOfPeriod = (dateStr, type) => {{
-                    const parts = dateStr.split('-');
-                    const y = parseInt(parts[0]), m = parseInt(parts[1])-1, d = parseInt(parts[2]);
-                    // Create UTC date to avoid local TZ issues
-                    const cur = new Date(Date.UTC(y, m, d));
-                    
-                    if (type === '週足' || type === '1wk') {{
-                        // Monday based
-                        const dayVal = cur.getUTCDay(); // 0=Sun, 1=Mon
-                        const diff = (dayVal === 0 ? 6 : dayVal - 1);
-                        cur.setUTCDate(cur.getUTCDate() - diff);
-                    }} else if (type === '月足' || type === '1mo') {{
-                        cur.setUTCDate(1);
-                    }}
-                    // return YYYY-MM-DD
-                    const yy = cur.getUTCFullYear();
-                    const mm = ('0' + (cur.getUTCMonth() + 1)).slice(-2);
-                    const dd = ('0' + cur.getUTCDate()).slice(-2);
-                    return `${{yy}}-${{mm}}-${{dd}}`;
-                }};
-
                 let filteredC = [], filteredM5 = [], filteredM25 = [], filteredM75 = [];
                 
-                // Determine context
-                let isIntradayMain = false;
-                let cutoffDateStr = null;
+                if (intervalSec > 0 && currentMainTime && currentMainCData) {{
+                    // Intraday logic (Times are Unix Timestamps)
+                    // 1. Identify valid historical range (Completed bars)
+                    
+                    // Current forming bucket start time
+                    // Assuming intervalSec (300) is clean divisor usually, but usually timestamps are aligned to 00:00.
+                    // 5m bars are 0, 300, 600...
+                    const bucketStart = Math.floor(currentMainTime / intervalSec) * intervalSec;
+                    
+                    // Filter historical: valid if bar.time < bucketStart
+                    // We trust subDMap contains correct finalized bars.
+                    const checkHist = (t) => t < bucketStart;
 
-                if (currentMainTime) {{
-                    if (typeof currentMainTime === 'number') {{
-                        isIntradayMain = true;
-                        cutoffDateStr = getJSTDateStr(currentMainTime);
-                    }} else {{
-                        cutoffDateStr = currentMainTime;
+                    for(let i=0; i<sd.c.length; i++) {{
+                        if(checkHist(sd.c[i].time)) {{
+                            filteredC.push(sd.c[i]);
+                            filteredM5.push(sd.m5[i]);
+                            filteredM25.push(sd.m25[i]);
+                            filteredM75.push(sd.m75[i]);
+                        }}
                     }}
-                }}
-
-                if (currentMainTime) {{
-                    if (intervalSec > 0) {{
-                         // === INTRADAY SUB-CHART (e.g. 5m) ===
-                         const bucketStart = Math.floor(currentMainTime / intervalSec) * intervalSec;
-                         const checkHist = (t) => t < bucketStart;
-                         
-                         for(let i=0; i<sd.c.length; i++) {{
-                            if(checkHist(sd.c[i].time)) {{
-                                filteredC.push(sd.c[i]);
-                                filteredM5.push(sd.m5[i]);
-                                filteredM25.push(sd.m25[i]);
-                                filteredM75.push(sd.m75[i]);
-                            }}
-                        }}
+                    
+                    // 2. Synthesize Forming Candle
+                    // Find all main candles that belong to [bucketStart, currentMainTime]
+                    
+                    let formO=null, formH=-Infinity, formL=Infinity, formC=null, formVol=0;
+                    let found = false;
+                    
+                    for (let i = currentMainCData.length - 1; i >= 0; i--) {{
+                        const c = currentMainCData[i];
+                        if (c.time < bucketStart) break; // Finished current bucket
                         
-                        // Synthesize Forming
-                        if (currentMainCData) {{
-                            let formO=null, formH=-Infinity, formL=Infinity, formC=null;
-                            let found = false;
-                            for (let i = currentMainCData.length - 1; i >= 0; i--) {{
-                                const c = currentMainCData[i];
-                                if (c.time < bucketStart) break;
-                                if (!found) {{ formC = c.close; found=true; }}
-                                formO = c.open;
-                                formH = Math.max(formH, c.high);
-                                formL = Math.min(formL, c.low);
-                            }}
-                            if (found) {{
-                                filteredC.push({{ time: bucketStart, open: formO, high: formH, low: formL, close: formC }});
-                            }}
-                        }}
+                        // Accumulate (order is reverse loop, so be careful with Open/Close)
+                        if (!found) {{ formC = c.close; found=true; }} // Last one we see is Close
+                        formO = c.open; // Keep updating Open (will end up being the earliest)
+                        formH = Math.max(formH, c.high);
+                        formL = Math.min(formL, c.low);
+                    }}
+                    
+                    if (found) {{
+                        const formCandle = {{ time: bucketStart, open: formO, high: formH, low: formL, close: formC }};
+                        filteredC.push(formCandle);
                         
-                    }} else {{
-                        // === DAILY/WEEKLY SUB-CHART ===
-                        
-                        // Default startOfPeriod is the cutoff itself (Today)
-                        let startOfPeriod = cutoffDateStr;
-                        
-                        // If Monthly/Weekly, we need to find the FIRST day of that period
-                        // because valid historical bars must be strictly before that first day.
-                        if (key === '週足' || key === '月足' || key === '1wk' || key === '1mo') {{
-                            startOfPeriod = getStartOfPeriod(cutoffDateStr, key);
-                        }}
-                        
-                        // Filter: strictly less than start of current period
-                        const check = (t) => t < startOfPeriod;
-                        
-                        for(let i=0; i<sd.c.length; i++) {{
-                            if(check(sd.c[i].time)) {{
-                                filteredC.push(sd.c[i]);
-                                filteredM5.push(sd.m5[i]);
-                                filteredM25.push(sd.m25[i]);
-                                filteredM75.push(sd.m75[i]);
-                            }}
-                        }}
-                        
-                        // Synthesize Forming Candle
-                        // We aggregate either from Intraday data (if main is Intraday)
-                        // OR from Daily data (if main is Daily).
-                        
-                        if (currentMainCData) {{
-                            let formO=null, formH=-Infinity, formL=Infinity, formC=null;
-                            let found = false;
-                            
-                            // Iterate backwards
-                            for (let i = currentMainCData.length - 1; i >= 0; i--) {{
-                                const c = currentMainCData[i];
-                                let cDate;
-                                if (isIntradayMain) {{
-                                     cDate = getJSTDateStr(c.time);
-                                }} else {{
-                                     cDate = c.time;
-                                }}
-                                
-                                // Stop if we go before the start of the current period
-                                if (cDate < startOfPeriod) break;
-                                
-                                // Accumulate
-                                if (!found) {{ formC = c.close; found=true; }}
-                                formO = c.open;
-                                formH = Math.max(formH, c.high);
-                                formL = Math.min(formL, c.low);
-                            }}
-                            
-                            if (found) {{
-                                filteredC.push({{ time: startOfPeriod, open: formO, high: formH, low: formL, close: formC }});
-                            }}
+                        // Note: We don't synthesize MAs for forming candle easily. 
+                        // Just stop MAs at previous bar.
+                    }}
+                    
+                }} else if (currentMainTime) {{
+                     // Daily/Weekly mode (Strings) - fallback to simple logic
+                     const check = (t) => {{
+                         if (typeof currentMainTime === 'number') return true; 
+                         return t < currentMainTime;
+                     }};
+                     for(let i=0; i<sd.c.length; i++) {{
+                        if(check(sd.c[i].time)) {{
+                            filteredC.push(sd.c[i]);
+                            filteredM5.push(sd.m5[i]);
+                            filteredM25.push(sd.m25[i]);
+                            filteredM75.push(sd.m75[i]);
                         }}
                     }}
                 }} else {{
-                    // Initial / No Context
+                    // Init view
                      filteredC = sd.c; filteredM5=sd.m5; filteredM25=sd.m25; filteredM75=sd.m75;
                 }}
 
@@ -614,6 +506,11 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                      if (idx < d.tgt.c.length) {{
                          const curData = (idx > 0) ? d.tgt.c[idx-1] : d.ctx.c[d.ctx.c.length-1];
                          curT = curData.time;
+                         // Ideally we need full cData access here, but this is an edge case (switch mid-game)
+                         // We can grab global cData from render scope? No it's local.
+                         // We can reconstruct roughly or wait for next render.
+                         // Let's pass null cData forces static view updates on next step.
+                         // Or reconstructed:
                          const currentFull = [...d.ctx.c, ...d.tgt.c.slice(0, idx)];
                          curCData = currentFull;
                      }}
@@ -830,191 +727,249 @@ def render_game_html(data, sub_data_map, ticker_name, ticker_code, mode, sub_mod
                         // ボタン制御
                         const hasNext = (idx < d.tgt.c.length);
                         document.getElementById('btn-next').style.display = hasNext ? 'inline-block' : 'none';
-                    }}, 500);
+                        
+                        document.getElementById('res-modal').style.display='flex';
+                    }}, 1000);
                 }}
             }}
 
             document.getElementById('btn-up').onclick = () => playTurn('up');
-            document.getElementById('btn-down').onclick = () => playTurn('down');
             document.getElementById('btn-skip').onclick = () => playTurn('skip');
-            document.getElementById('btn-retry').onclick = () => {{
-                // 同じ期間でリトライ
-                document.getElementById('res-modal').style.display='none';
-                initGame(startIdx);
-            }};
-            document.getElementById('btn-next').onclick = () => {{
-                // 次の期間へ（現在のidxからスタート）
-                document.getElementById('res-modal').style.display='none';
-                initGame(idx);
-            }};
+            document.getElementById('btn-down').onclick = () => playTurn('down');
 
+            document.getElementById('btn-retry').onclick = () => initGame(startIdx);
+            document.getElementById('btn-next').onclick = () => initGame(idx); // 現在のidxから開始
         }})();
         </script>
     </body>
     </html>
     """
-    st.components.v1.html(html, height=800)
+    return html
 
-def main():
-    if 'mode' not in st.session_state: st.session_state['mode'] = 'daily'
-    if 'ticker' not in st.session_state: st.session_state['ticker'] = '7203.T'
-    
-    with st.sidebar:
-        st.header("設定")
-        t_input = st.text_input("銘柄コード (例: 7203.T)", value=st.session_state['ticker'])
-        if t_input != st.session_state['ticker']:
-            st.session_state['ticker'] = t_input
+# === UI (Main Area) ===
+st.markdown("""
+    <style>
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    .stAlert { height: 100%; }
+    </style>
+""", unsafe_allow_html=True)
 
-        m_idx = 0
-        modes = ['daily', '5m', '3m', '1m']
-        labels = ['日足 (スイング)', '5分足 (デイトレ)', '3分足 (スキャ)', '1分足 (秒スキャ)']
-        if st.session_state['mode'] in modes:
-            m_idx = modes.index(st.session_state['mode'])
+# === 検索等のヘルパー関数 ===
+@st.cache_data(ttl=3600)
+def search_yahoo_jp(query):
+    # コードそのものなら検索不要だが、ここでは名前に対応
+    url = f"https://finance.yahoo.co.jp/search/?query={query}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.content, "html.parser")
         
-        sel_label = st.radio("モード選択", labels, index=m_idx)
-        new_mode = modes[labels.index(sel_label)]
-        if new_mode != st.session_state['mode']:
-            st.session_state['mode'] = new_mode
-            st.rerun()
-
-        st.markdown("---")
-        st.markdown("### 遊び方")
-        st.markdown("1. モードと銘柄を選んでデータ取得\n2. 「開始！」ボタンを押す\n3. 予測してBUY/SELLボタン\n4. 20回トレードで結果発表")
-
-    st.title("Stock Training App")
-    
-    # データ取得
-    mode = st.session_state['mode']
-    ticker = st.session_state['ticker']
-    
-    # 期間設定
-    period_map = {'daily': "10y", '5m': "60d", '3m': "7d", '1m': "7d"}
-    period = period_map[mode]
-    
-    # データロード
-    with st.spinner("データを取得中..."):
-        df, err = fetch_raw_data(ticker, period, mode if mode!='daily' else '1d')
-    
-    if err:
-        st.error(err)
-        return
-
-    # 日付選択 (データがある場合のみ)
-    selected_date = None
-    if mode in ['5m', '3m', '1m']:
-        # 日付リスト作成
-        # indexはdatetime64[ns]
-        dates = sorted(list(set(df.index.strftime('%Y-%m-%d'))), reverse=True)
-        if not dates:
-            st.error("有効な日付データがありません")
-            return
-        selected_date = st.selectbox("日付選択", dates, index=0)
-    elif mode == 'daily':
-        # 開始日を選ぶスライダー的なもの、あるいはランダム
-        # ここではシンプルにランダムな開始位置を決めるUIにはせず、
-        # ユーザーが「特定の日から始めたい」要望に応えるため日付入力を設ける
-        min_date = df.index.min().date()
-        max_date = df.index.max().date()
-        # default roughly 1 year ago
-        default_date = max_date.replace(year=max_date.year-1)
-        if default_date < min_date: default_date = min_date
-        
-        # Date Input
-        selected_date_obj = st.date_input("開始日選択", value=default_date, min_value=min_date, max_value=max_date)
-        selected_date = selected_date_obj.strftime('%Y-%m-%d')
-
-    if st.button("開始！"):
-        # データ加工
-        data, msg = process_data(df, mode, selected_date)
-        if msg:
-            st.error(msg)
-        else:
-            ticker_name = get_japanese_name(ticker)
-            
-            # サブチャート用データ取得
-            # 日足モード -> 週足、月足
-            # 分足モード -> 5分足(自分自身だが長期表示用)、日足
-            sub_map = {}
-            sub_intervals = {}
-            sub_data_map = {}
-            
-            # sub_mode_map: 表示名 -> yfinance interval
-            if mode == 'daily':
-                sub_mode_map = {"週足": "1wk", "月足": "1mo"}
-            elif mode == '5m':
-                sub_mode_map = {"日足": "1d", "週足": "1wk"}
-            else: # 3m, 1m
-                # 3m, 1m の場合、上位足として 5m, 日足 を見たい
-                sub_mode_map = {"5分足": "5m", "日足": "1d"}
-
-            sub_keys = list(sub_mode_map.keys())
-
-            for label, sub_int in sub_mode_map.items():
-                # サブチャートデータの取得期間
-                # 分足なら直近数日、日足なら数年
-                s_period = "60d" if sub_int == "5m" else "10y"
-                s_df, s_err = fetch_raw_data(ticker, s_period, sub_int)
+        candidates = []
+        seen = set()
+        # リンクから銘柄コードを探す
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            # 例: https://finance.yahoo.co.jp/quote/7203.T
+            m = re.search(r'/quote/(\d{4}\.T)', href)
+            if m:
+                code = m.group(1)
+                name = a.get_text(strip=True)
+                # ゴミ除け: "掲示板", "チャート", "ニュース" などが含まれるリンクは詳細リンクとして除外したいが
+                # 検索結果には "7203.T : トヨタ自動車" のようなリンクが出るはず
+                # 簡易的に、名前にコードが含まれない or 明らかに短いものは除外など工夫
+                # Yahooの検索結果は構成が変わる可能性が高いので、ある程度ヒューリスティックに
                 
-                if s_df is not None:
-                    # サブチャートも game_end_dt 以前のデータのみにフィルタリングする必要がある？
-                    # メインチャートのデータ範囲に合わせてフィルタする
-                    # game_end_dt position
-                    # 日足: selected_date + 20 days (approx)
-                    # イントラデイ: selected_date の終端
-                    
-                    # 簡易的に、全データを渡してJS側で currentMainTime に基づいて表示制限する
-                    # ただし未来のデータが含まれるとカンニングになるので、
-                    # メインデータの「最終ターゲット日時」以降はカットしておくのが安全
-                    
-                    game_end_dt = df.index[-1] # default max
-                    if mode == 'daily':
-                         # tgt_df is last 20 days from selected_date
-                         # process_data logic: tgt_df ends at (start_pos + 20)
-                         # We can roughly use the fetched df's last date if we didn't slice strict
-                         # But process_data slices df.
-                         # Let's trust process_data's data['tgt']['c'][-1]['time']
-                         # But we are in Python.
-                         pass 
-                    
-                    # リミット処理: メインデータの末尾より未来は消す
-                    if mode in ['5m', '3m', '1m']:
-                         # index filtered by selected_date
-                         target_mask = df.index.strftime('%Y-%m-%d') == selected_date
-                         sub_tgt = df.loc[target_mask]
-                         if not sub_tgt.empty:
-                             game_end_dt = sub_tgt.index[-1]
+                # 名前が短い、または特定の単語のみの場合はスキップ
+                if name in ["掲示板", "チャート", "時系列", "ニュース", "企業情報", "株主優待"]:
+                    continue
+                
+                # 重複排除
+                if code not in seen:
+                    candidates.append(f"{code} : {name}")
+                    seen.add(code)
+        
+        return candidates
+    except Exception as e:
+        return []
+
+st.title("💹 株トレードゲーム")
+
+# メインエリアの上部に操作系を配置
+c1, c2, c3 = st.columns([1.5, 1.2, 1.2]) 
+
+with c1:
+    # 検索窓
+    search_input = st.text_input("銘柄検索 (コード or 名称)", "7203", placeholder="例: トヨタ or 7203")
+    
+    # 入力値の正規化（全角→半角）
+    search_input = search_input.translate(str.maketrans({chr(0xFF10 + i): chr(0x30 + i) for i in range(10)}))
+    search_input = search_input.strip()
+    
+    ticker_input = "7203.T" # Default
+    
+    # 4桁数字のみ -> コードとみなさずに検索する（プルダウンで確認させる）
+    # ただし "7203.T" のように .T まで入れた場合は直接指定とみなす
+    if re.match(r'^\d{4}\.T$', search_input):
+        ticker_input = search_input
+    # それ以外（4桁数字、文字など） -> 全部検索にかける
+    elif search_input:
+        candidates = search_yahoo_jp(search_input)
+        if candidates:
+            # 選択肢を表示（最初の要素をデフォルトに）
+            selected_cand = st.selectbox("候補を選択", candidates)
+            # "7203.T : トヨタ自動車" -> "7203.T"
+            ticker_input = selected_cand.split(":")[0].strip()
+        else:
+            # 候補が見つからない場合
+            # 4桁数字ならそのままコードとしてトライするフォールバック
+            if re.match(r'^\d{4}$', search_input):
+                 ticker_input = f"{search_input}.T"
+                 # 警告は出さず、そのまま進める（検索ではヒットしないが有効なコードの可能性）
+            else:
+                 st.warning("候補が見つかりませんでした。コードを正確に入力してください。")
+                 ticker_input = None # 処理中断用
+
+with c2:
+    mode = st.radio("モード", ["日足", "5分足", "3分足", "1分足"], horizontal=True, label_visibility="collapsed")
+
+# サブチャート用設定（選択肢定義のみ）
+sub_mode_map = {}
+
+# モード判定
+if mode == "日足":
+    game_mode = 'daily'
+    sub_mode_map = {"週足": "1wk", "月足": "1mo"}
+elif mode == "5分足":
+    game_mode = '5m'
+    sub_mode_map = {"日足": "1d", "週足": "1wk"}
+elif mode == "3分足":
+    game_mode = '3m'
+    sub_mode_map = {"5分足": "5m", "日足": "1d", "週足": "1wk"}
+else: # 1分足
+    game_mode = '1m'
+    sub_mode_map = {"5分足": "5m", "日足": "1d", "週足": "1wk"}
+
+# 日付選択（イントラデイ or 日足）
+selected_date_opt = None
+if game_mode in ['1m', '3m', '5m']:
+    # イントラデイ用日付選択
+    # 1分足・3分足は period="7d" が限界なので、直近7日分から選ぶ
+    # 5分足は "60d"
+    check_period = "7d" if game_mode in ['1m', '3m'] else "60d"
+    check_interval = "1m" if game_mode in ['1m', '3m'] else "5m"
+    
+    with st.spinner("日付データを取得中..."):
+        # 日付リスト取得のためだけなので、リサンプリング不要で1m/5mそのまま使う
+        df_check, err = fetch_raw_data(ticker_input, check_period, check_interval)
+        
+        if df_check is not None and not df_check.empty:
+            dates = sorted(list(set(df_check.index.strftime('%Y-%m-%d'))), reverse=True)
+            with c3:
+                selected_date_opt = st.selectbox("日付", dates)
+        elif err:
+            st.error(err)
+else:
+    # 日足モードの場合
+    with st.spinner("データ確認中..."):
+        df_check, err = fetch_raw_data(ticker_input, "10y", "1d")
+        if df_check is not None and not df_check.empty and len(df_check) > 70:
+            min_date = df_check.index[50].date()
+            max_date = df_check.index[-PREDICT_DAYS_DAILY].date()
+            default_date = max_date
+            
+            with c3:
+                val = st.date_input("開始日", value=default_date, min_value=min_date, max_value=max_date)
+                selected_date_opt = val.strftime('%Y-%m-%d')
+        elif err:
+            st.error(err)
+
+st.markdown("---")
+
+# 常に実行
+with st.spinner("データを準備中..."):
+    # メインチャート用データ
+    if game_mode == 'daily':
+        period = "10y"
+        interval = "1d"
+    elif game_mode in ['1m', '3m']:
+        period = "7d"
+        interval = game_mode # "1m" or "3m" (fetch_raw_data handles 3m)
+    else: # 5m
+        period = "60d"
+        interval = "5m"
+    
+    raw_df, error_msg = fetch_raw_data(ticker_input, period, interval)
+    
+    # サブチャート用データ（全候補取得）
+    sub_datasets = {}
+    sub_errors = []
+    
+    for label, sub_int in sub_mode_map.items():
+        # サブチャートの期間設定
+        # 日足/週足/月足は10yでOK
+        # 5分足は60d
+        s_period = "60d" if sub_int == "5m" else "10y"
+        
+        s_df, s_err = fetch_raw_data(ticker_input, s_period, sub_int)
+        if s_err:
+            sub_errors.append(f"{label}: {s_err}")
+            continue
+            
+        # MA計算
+        s_df['MA5'] = s_df['Close'].rolling(5).mean()
+        s_df['MA25'] = s_df['Close'].rolling(25).mean()
+        s_df['MA75'] = s_df['Close'].rolling(75).mean()
+        s_df = s_df.dropna()
+        sub_datasets[label] = s_df
+
+    if error_msg:
+        st.error(error_msg)
+    elif sub_errors:
+        st.error("サブチャート取得エラー: " + ", ".join(sub_errors))
+    else:
+        game_data, proc_err = process_data(raw_df, game_mode, selected_date_opt)
+        
+        if proc_err:
+            st.error(proc_err)
+        else:
+            # 各サブチャートを整形して格納
+            final_sub_map = {}
+            sub_intervals = {} # JSに渡す期間（秒）。日足などの場合は0
+            
+            # ゲーム終了時刻（ターゲットデータの最後）を取得して、そこまでサブチャートを含める
+            game_end_dt = None
+            if game_data['tgt']['c']:
+                last_tgt = game_data['tgt']['c'][-1]['time']
+                if game_mode == 'daily':
+                     game_end_dt = pd.Timestamp(last_tgt)
+                else:
+                    ts = last_tgt
+                    dt_utc = datetime.fromtimestamp(ts, timezone.utc)
+                    game_end_dt = dt_utc.replace(tzinfo=None)
+
+            for label, s_df in sub_datasets.items():
+                # Cutoff: allow up to game end
+                s_df_cut = s_df[s_df.index <= game_end_dt] if game_end_dt else s_df
+                
+                chart_d = {"c": [], "m5": [], "m25": [], "m75": []}
+                
+                is_sub_intraday = (label == "5分足")
+                sub_intervals[label] = 300 if is_sub_intraday else 0
+                
+                for t, r in s_df_cut.iterrows():
+                    if is_sub_intraday:
+                         # 5分足サブチャートの場合はタイムスタンプ（JST->UTC trick）
+                         t_val = int(t.replace(tzinfo=timezone.utc).timestamp())
                     else:
-                         # Daily: df is full history normally, but we might want to restrict if selected
-                         # However, for Daily subcharts (Weekly/Monthly), the timestamp is Date.
-                         # We can just pass all history up to today for subcharts, 
-                         # and JS checks timestamp vs current main time.
-                         pass
+                         # 週足・月足・日足は日付文字列
+                         t_val = t.strftime('%Y-%m-%d')
+                         
+                    chart_d["c"].append({"time": t_val, "open": r['Open'], "high": r['High'], "low": r['Low'], "close": r['Close']})
+                    for m in ['m5', 'm25', 'm75']: chart_d[m].append({"time": t_val, "value": r['MA'+m[1:]]})
+                final_sub_map[label] = chart_d
 
-                    # カット (Safety)
-                    # s_df is timestamp indexed
-                    if s_df.index.tz is None and game_end_dt.tzinfo is None:
-                        s_df_cut = s_df[s_df.index <= game_end_dt]
-                    else:
-                        s_df_cut = s_df # fallback
-                    
-                    # Process sub data
-                    # make_entry logic duplicated but simplified
-                    is_sub_intraday = (label == "5分足") # 5m is intraday
-                    sub_intervals[label] = 300 if is_sub_intraday else 0 # 5m=300sec
-                    
-                    s_processed = process_data(s_df_cut, sub_int, None) # mode mismatch but works for calculation
-                    # process_data returns {ctx, tgt}. Merge them.
-                    if s_processed[0]:
-                        merged_c = s_processed[0]['ctx']['c'] + s_processed[0]['tgt']['c']
-                        merged_m5 = s_processed[0]['ctx']['m5'] + s_processed[0]['tgt']['m5']
-                        merged_m25 = s_processed[0]['ctx']['m25'] + s_processed[0]['tgt']['m25']
-                        merged_m75 = s_processed[0]['ctx']['m75'] + s_processed[0]['tgt']['m75']
-                        
-                        sub_data_map[label] = {
-                            "c": merged_c, "m5": merged_m5, "m25": merged_m25, "m75": merged_m75
-                        }
-
-            render_game_html(data, sub_data_map, ticker_name, ticker, mode, sub_keys, sub_intervals)
-
-if __name__ == "__main__":
-    main()
+            comp_name = get_japanese_name(ticker_input)
+            # pass sub_intervals
+            game_html = render_game_html(game_data, final_sub_map, comp_name, ticker_input, game_mode, list(sub_mode_map.keys()), sub_intervals)
+            st.components.v1.html(game_html, height=850, scrolling=False)
